@@ -1,0 +1,15 @@
+{
+  "originHash" : "f35d30e7c2bde6ecf0e83002a5c1870402df121e8b6ae1fcdc5762e882b2c53a",
+  "pins" : [
+    {
+      "identity" : "swift-special-string",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-Special-String.git",
+      "state" : {
+        "revision" : "7a82d5b07b72aed848b028d3e8bf6d9591ec108a",
+        "version" : "1.2.0"
+      }
+    }
+  ],
+  "version" : 3
+}
