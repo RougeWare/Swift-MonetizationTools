@@ -10,6 +10,8 @@ import StoreKit
 
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 
@@ -25,16 +27,23 @@ public struct AppStoreReviewAction: MonetizationPromptAction {
     
     @MainActor
     public func perform(for identifier: MonetizationPromptIdentifier) async throws -> MonetizationPromptActionOutcome {
-        #if os(macOS)
-        AppStore.requestReview()
-        return .succeeded
-        
-        #elseif canImport(UIKit) && !os(watchOS)
+        #if canImport(UIKit) && !os(watchOS)
         guard let scene = Self.activeScene else {
             return .notCompleted
         }
         
         AppStore.requestReview(in: scene)
+        return .succeeded
+        
+        #elseif canImport(AppKit)
+        // There is no scene-less overload on macOS; a view controller is required, the same as a UIWindowScene is
+        // required on iOS. https://developer.apple.com/forums/tags/storekit confirms this is Apple's own design, not
+        // an oversight here, however inconvenient it is for windowless or menu-bar-only apps.
+        guard let viewController = Self.activeViewController else {
+            return .notCompleted
+        }
+        
+        AppStore.requestReview(in: viewController)
         return .succeeded
         
         #else
@@ -51,6 +60,15 @@ public struct AppStoreReviewAction: MonetizationPromptAction {
             .lazy
             .compactMap { $0 as? UIWindowScene }
             .first { .foregroundActive == $0.activationState }
+    }
+    #endif
+    
+    
+    #if canImport(AppKit)
+    /// The view controller to present the review request in, if there is one
+    @MainActor
+    private static var activeViewController: NSViewController? {
+        (NSApplication.shared.keyWindow ?? NSApplication.shared.mainWindow)?.contentViewController
     }
     #endif
 }

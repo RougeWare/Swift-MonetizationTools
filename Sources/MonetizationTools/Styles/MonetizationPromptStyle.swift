@@ -60,20 +60,47 @@ public struct MonetizationPromptStyleConfiguration {
 
 // MARK: - Environment
 
-/// A ``MonetizationPromptStyle`` with its type forgotten, so it can ride in the environment
+/// A ``MonetizationPromptStyle`` with its type forgotten, so it can ride in the environment.
+///
+/// This erases through a generic box rather than a stored closure. A closure typed as `@MainActor` is itself a
+/// commitment about where it runs, and forming one requires already being on the main actor at the point of capture —
+/// but this type's `init` is reached from `@Entry`'s synthesized default value below, which is not main-actor-isolated,
+/// so that commitment can't be made honestly at construction time. A box defers the isolated part to a method call
+/// instead, which only ever happens from `makeBody(configuration:)`, already correctly isolated below, so nothing here
+/// needs to be Sendable and nothing needs to be sent anywhere.
 internal struct AnyMonetizationPromptStyle {
     
-    private let _makeBody: @MainActor (MonetizationPromptStyleConfiguration) -> AnyView
+    private let box: any MonetizationPromptStyleBox
     
     
     init(_ style: some MonetizationPromptStyle) {
-        self._makeBody = { AnyView(style.makeBody(configuration: $0)) }
+        self.box = ConcreteMonetizationPromptStyleBox(style: style)
     }
     
     
     @MainActor
     func makeBody(configuration: MonetizationPromptStyleConfiguration) -> AnyView {
-        _makeBody(configuration)
+        box.makeBody(configuration: configuration)
+    }
+}
+
+
+
+/// Holds one ``MonetizationPromptStyle``, generically, behind a non-generic interface
+private protocol MonetizationPromptStyleBox {
+    @MainActor func makeBody(configuration: MonetizationPromptStyleConfiguration) -> AnyView
+}
+
+
+
+private struct ConcreteMonetizationPromptStyleBox<Style: MonetizationPromptStyle>: MonetizationPromptStyleBox {
+    
+    let style: Style
+    
+    
+    @MainActor
+    func makeBody(configuration: MonetizationPromptStyleConfiguration) -> AnyView {
+        AnyView(style.makeBody(configuration: configuration))
     }
 }
 
