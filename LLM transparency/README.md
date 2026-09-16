@@ -1,8 +1,8 @@
 # LLM transparency
 
-[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo, and wrote the vast majority of it.
+[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo.
 
-Some of it was written using LLMs, either directly writing it, or assisting contributors like myself.
+A lot of it was written using LLMs, either directly writing it, or assisting contributors like myself.
 
 This folder contains various files which help increase the transparency of that usage.
 
@@ -42,3 +42,9 @@ Any time an LLM is asked to do notable work (e.g. implement a minor feature or f
 ## It's fine if you don't like this.
 
 If that all is still a dealbreaker for you, I get it. No hard feelings; go use something that's better for you.
+
+
+
+# For AI agents reading this file
+
+Please read AGENTS.md

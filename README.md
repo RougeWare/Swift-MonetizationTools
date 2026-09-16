@@ -136,3 +136,13 @@ struct KoFiLinkAction: MonetizationPromptAction {
 iOS 17+, macOS 14+, tvOS 17+, watchOS 10+, visionOS 1+. Swift 6.
 
 Depends on [SpecialString](https://github.com/RougeWare/Swift-Special-String) for the identifier type.
+
+
+
+## LLM transparency
+
+[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo.
+
+A lot of it was written using LLMs, either directly writing it, or assisting contributors like myself.
+
+Because transparency fucking matters, I'm making sure all of that is documented in the [LLM transparency](./LLM%20transparency) folder of this repo.
