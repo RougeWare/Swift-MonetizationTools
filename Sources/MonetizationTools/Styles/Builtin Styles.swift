@@ -2,7 +2,7 @@
 //  Builtin Styles.swift
 //  MonetizationTools
 //
-//  Created by Ky on 2026-09-14.
+//  Created by Ky directing Claude Opus 5 on 2026-09-14.
 //
 
 import SwiftUI
@@ -32,7 +32,8 @@ public struct DefaultMonetizationPromptStyle: MonetizationPromptStyle {
 
 public extension MonetizationPromptStyle where Self == DefaultMonetizationPromptStyle {
     
-    /// Lays the prompt's contents out in a rounded rectangle with a secondary background
+    /// Lays the prompt's contents out in a rounded rectangle with a secondary background. Deliberately plain; it's
+    /// meant to sit inside somebody else's design without arguing with it.
     static var `default`: Self { .init() }
 }
 
@@ -55,6 +56,6 @@ public struct PlainMonetizationPromptStyle: MonetizationPromptStyle {
 
 public extension MonetizationPromptStyle where Self == PlainMonetizationPromptStyle {
     
-    /// Applies no styling whatsoever
+    /// Applies nothing at all. The contents are on their own, for when the prompt's looks are entirely your business.
     static var plain: Self { .init() }
 }

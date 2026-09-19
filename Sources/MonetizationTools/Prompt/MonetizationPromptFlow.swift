@@ -2,7 +2,7 @@
 //  MonetizationPromptFlow.swift
 //  MonetizationTools
 //
-//  Created by Ky on 2026-09-14.
+//  Created by Ky directing Claude Opus 5 on 2026-09-14.
 //
 
 import Foundation
@@ -35,19 +35,23 @@ public extension MonetizationPromptFlow {
     /// Takes this prompt up on its offer, doing whatever its action does.
     ///
     /// On ``MonetizationPromptActionOutcome/succeeded``, the prompt retires permanently and disappears. On
-    /// ``MonetizationPromptActionOutcome/pending`` or ``MonetizationPromptActionOutcome/notCompleted``, nothing is
-    /// recorded and the prompt keeps its existing schedule. Backing out of an offer is not the same as asking not to be
-    /// asked.
+    /// ``MonetizationPromptActionOutcome/pending``, the prompt stays exactly as it was; whatever eventually resolves
+    /// it is responsible for retiring it. On ``MonetizationPromptActionOutcome/abandoned``, nothing is recorded and
+    /// the prompt keeps its existing schedule — backing out of an offer is not the same as asking not to be asked.
     ///
     /// - Returns: What became of the action
     /// - Throws: Whatever the action threw
     @discardableResult
     func present() async throws -> MonetizationPromptActionOutcome {
-        let outcome = try await descriptor.action.perform(for: descriptor.identifier)
+        let outcome = try await descriptor.action.perform(id: descriptor.identifier)
         
-        if .succeeded == outcome {
+        switch outcome {
+        case .succeeded:
             store.retire(descriptor)
             dismiss()
+            
+        case .pending, .abandoned:
+            break
         }
         
         return outcome

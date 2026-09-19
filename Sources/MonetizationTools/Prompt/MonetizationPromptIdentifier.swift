@@ -2,7 +2,7 @@
 //  MonetizationPromptIdentifier.swift
 //  MonetizationTools
 //
-//  Created by Ky on 2026-09-14.
+//  Created by Ky directing Claude Opus 5 on 2026-09-14.
 //
 
 import SpecialString

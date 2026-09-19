@@ -2,7 +2,7 @@
 //  MonetizationPrompt + Descriptor.swift
 //  MonetizationTools
 //
-//  Created by Ky on 2026-09-14.
+//  Created by Ky directing Claude Opus 5 on 2026-09-14.
 //
 
 import Foundation
@@ -11,8 +11,8 @@ import Foundation
 
 public extension MonetizationPrompt {
     
-    /// Everything which defines one monetization prompt: who it is, how often it may appear, how far its memory
-    /// reaches, and what happens when someone says yes.
+    /// Everything which defines one monetization prompt: how often it may appear, how far its memory reaches, and
+    /// what happens when someone takes it up on its offer.
     ///
     /// Declare these once, as static members, and refer to them by dot-shorthand wherever the prompt appears:
     ///
@@ -35,9 +35,11 @@ public extension MonetizationPrompt {
         
         /// How long this prompt waits before its first appearance, and between every appearance after that.
         ///
-        /// This is only read once, the very first time this prompt is checked; from then on the value recorded at that
-        /// moment is the one which governs. Changing it in a later version of your app doesn't affect anyone who
-        /// already has the old one.
+        /// Only the very first check of this prompt ever reads this value. From then on, whatever it was at that
+        /// first check is what's used, for as long as the prompt exists — including for someone whose first check
+        /// already happened but who hasn't been shown the prompt yet, since they're still waiting on that same locked-in
+        /// value. Changing this in a later version of your app only reaches people who have never once been checked
+        /// for this prompt before.
         public let interval: PromptInterval
         
         /// Whether this prompt's history is kept for this app alone, or shared with the rest of an App Group
@@ -54,7 +56,10 @@ public extension MonetizationPrompt {
         ///                 that. Defaults to ``PromptInterval/monthly``.
         ///   - scope:      _optional_ - How far this prompt's memory reaches. Defaults to
         ///                 ``MonetizationPromptScope/perApp``.
-        ///   - action:     What happens when someone says yes
+        ///   - action:     What happens when someone takes this prompt up on its offer. This runs when someone taps
+        ///                 into your own button and calls ``MonetizationPromptFlow/present()`` — before whatever the
+        ///                 action itself shows. For ``StoreKitPurchaseAction``, that means before Apple's own
+        ///                 payment sheet appears, since presenting that sheet is what this action does.
         public init(
             _ identifier: MonetizationPromptIdentifier,
             atMost interval: PromptInterval = .monthly,

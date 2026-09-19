@@ -2,7 +2,7 @@
 //  PromptInterval.swift
 //  MonetizationTools
 //
-//  Created by Ky on 2026-09-14.
+//  Created by Ky directing Claude Opus 5 on 2026-09-14.
 //
 
 import Foundation
@@ -59,13 +59,18 @@ internal extension PromptInterval {
     }
     
     
-    /// A rough number of seconds in this interval, used only as a fallback when calendar math fails outright
+    /// A rough number of seconds in this interval, used only as a fallback when calendar math fails outright.
+    ///
+    /// `.yearly` uses the mean tropical year (365.24219 days) rather than a plain 365, since this is the only place
+    /// a year's length is defined and everything shorter than a year derives from it. `@inline(__always)` keeps that
+    /// derivation from costing an extra stack frame; the whole thing still compiles down to a handful of constants.
+    @inline(__always)
     private var approximateSeconds: TimeInterval {
         switch self {
         case .weekly:    60 * 60 * 24 * 7
-        case .monthly:   60 * 60 * 24 * 30
-        case .quarterly: 60 * 60 * 24 * 91
-        case .yearly:    60 * 60 * 24 * 365
+        case .monthly:   Self.yearly.approximateSeconds / 12
+        case .quarterly: Self.yearly.approximateSeconds / 4
+        case .yearly:    60 * 60 * 24 * 365.24219 // 1 mean tropical year
         }
     }
 }

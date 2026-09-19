@@ -2,12 +2,14 @@
 //  MonetizationPromptStore.swift
 //  MonetizationTools
 //
-//  Created by Ky on 2026-09-14.
+//  Created by Ky directing Claude Opus 5 on 2026-09-14.
 //
 
 import CryptoKit
 import Foundation
 
+import SerializationTools
+import SimpleLogging
 import SpecialString
 
 
@@ -18,12 +20,6 @@ import SpecialString
 /// configuration story.
 @MainActor
 internal final class MonetizationPromptStore {
-    
-    /// The stores which have been asked for so far, keyed by the scope which produced them
-    private static var stores: [MonetizationPromptScope : MonetizationPromptStore] = [:]
-    
-    /// The user defaults key under which this package keeps everything it knows
-    private static let storageKey = "org.bhstudios.MonetizationTools.prompts"
     
     /// Where this store's contents are persisted
     private let userDefaults: UserDefaults
@@ -72,12 +68,13 @@ internal extension MonetizationPromptStore {
     ///   - now:        _optional_ - The moment to treat as the present. Defaults to right now.
     func shouldShow(_ descriptor: MonetizationPrompt.Descriptor, now: Date = .now) -> Bool {
         let key = Self.key(for: descriptor.identifier)
+        Self.knownDescriptors[key] = descriptor
         
         switch records[key] {
         case .done:
             return false
             
-        case .tracking(_, let nextEligible):
+        case .tracking(interval: _, nextEligible: let nextEligible):
             return nextEligible <= now
             
         case nil:
@@ -107,8 +104,13 @@ internal extension MonetizationPromptStore {
     func snooze(_ descriptor: MonetizationPrompt.Descriptor, now: Date = .now) {
         let key = Self.key(for: descriptor.identifier)
         
-        guard case .tracking(let interval, _) = records[key] else {
-            return // Already done; nothing to push out
+        guard case .tracking(interval: let interval, nextEligible: _) = records[key] else {
+            // A prompt can only be snoozed from a screen where it's already showing, and it can only be showing once
+            // `shouldShow` has already written a `.tracking` record for it. Landing here means that record is gone or
+            // was never written — state this package didn't expect — so there's nothing safe to push out.
+            log(error: "Told to snooze prompt '\(descriptor.identifier)', but its stored record is "
+                     + "\(records[key].map(String.init(describing:)) ?? "missing"), not tracking. Doing nothing.")
+            return
         }
         
         write(.tracking(interval: interval, nextEligible: interval.date(after: now)), forKey: key)
@@ -126,9 +128,40 @@ internal extension MonetizationPromptStore {
 
 
 
+// MARK: - Descriptor registry
+
+internal extension MonetizationPromptStore {
+    
+    /// The descriptor last used to check each identifier, so code that only has an identifier later — like a
+    /// StoreKit transaction listener resolving an Ask to Buy approval — can look up the full descriptor it belongs to.
+    static func descriptor(for identifier: MonetizationPromptIdentifier) -> MonetizationPrompt.Descriptor? {
+        knownDescriptors[key(for: identifier)]
+    }
+}
+
+
+
+// MARK: - Static state
+
+private extension MonetizationPromptStore {
+    
+    /// The stores which have been asked for so far, keyed by the scope which produced them
+    static var stores: [MonetizationPromptScope : MonetizationPromptStore] = [:]
+    
+    /// The descriptor last seen for each identifier, keyed the same way as ``records`` so it needs nothing extra
+    /// from ``MonetizationPromptIdentifier`` itself. See ``descriptor(for:)``.
+    static var knownDescriptors: [String : MonetizationPrompt.Descriptor] = [:]
+}
+
+
+
 // MARK: - Persistence
 
 private extension MonetizationPromptStore {
+    
+    /// The user defaults key under which this package keeps everything it knows
+    static let storageKey = "org.bhstudios.MonetizationTools.prompts"
+    
     
     /// Records the given record for the given key, in memory and on disk
     func write(_ record: MonetizationPromptRecord, forKey key: String) {
@@ -139,24 +172,50 @@ private extension MonetizationPromptStore {
     
     /// Persists everything this store knows
     func flush() {
-        guard let data = try? JSONEncoder().encode(records) else {
-            return // Nothing sensible to do here; losing prompt history costs a person at most one extra ask
+        do {
+            userDefaults.set(try records.jsonData(), forKey: Self.storageKey)
         }
-        
-        userDefaults.set(data, forKey: Self.storageKey)
+        catch {
+            log(error: "Couldn't persist prompt history: \(error). Losing it costs a person at most one extra ask; "
+                     + "nothing else depends on this write succeeding.")
+        }
     }
     
     
-    /// Reads everything previously persisted, or nothing at all if this is a fresh install
+    /// Reads everything previously persisted, or nothing at all if this is a fresh install.
+    ///
+    /// Each record is decoded on its own, so one corrupted entry only costs that one prompt its history — never
+    /// everyone else's. A record that fails to decode is dropped rather than guessed at, which asking for it again
+    /// naturally turns into: the same "first time this was ever checked" path a fresh install takes, which starts the
+    /// clock over using the descriptor's own current interval and doesn't show anything until a full interval has
+    /// passed. That's deliberately the same outcome as "this was just dismissed," never "this was already paid for."
+    ///
+    /// - Parameter userDefaults: Where to read from
     static func readRecords(from userDefaults: UserDefaults) -> [String : MonetizationPromptRecord] {
-        guard
-            let data = userDefaults.data(forKey: storageKey),
-            let decoded = try? JSONDecoder().decode([String : MonetizationPromptRecord].self, from: data)
-        else {
+        guard let data = userDefaults.data(forKey: storageKey) else {
             return [:]
         }
         
-        return decoded
+        guard let rawEntries = try? JSONSerialization.jsonObject(with: data) as? [String : Any] else {
+            log(error: "Prompt history couldn't be parsed as JSON at all. Starting fresh; every prompt gets asked "
+                     + "again at most once because of this.")
+            return [:]
+        }
+        
+        var records: [String : MonetizationPromptRecord] = [:]
+        
+        for (key, rawEntry) in rawEntries {
+            do {
+                let entryData = try JSONSerialization.data(withJSONObject: rawEntry)
+                records[key] = try MonetizationPromptRecord(jsonData: entryData)
+            }
+            catch {
+                log(error: "Dropped one corrupted prompt record (key '\(key)'): \(error). Only that one prompt is "
+                         + "affected; it starts its clock over as though just checked for the first time.")
+            }
+        }
+        
+        return records
     }
     
     
@@ -169,7 +228,8 @@ private extension MonetizationPromptStore {
     /// - Parameter identifier: The identifier to digest
     static func key(for identifier: MonetizationPromptIdentifier) -> String {
         SHA256.hash(data: Data(identifier.withoutTypeSafety().utf8))
-            .prefix(8)
+            .prefix(8) // Full SHA-256 is 32 bytes; this package will never have enough prompts in one app for a
+                       // collision to be a realistic concern, and a shorter key keeps storage tiny.
             .map { String(format: "%02x", $0) }
             .joined()
     }

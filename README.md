@@ -5,7 +5,7 @@ Voluntary funding mechanics for apps which never gate anything behind them.
 Every ask this package can make is opt-in, dismissable forever in one tap, capped at weekly at its most frequent, and
 incapable of escalating. Nothing here can withhold a feature, because nothing here knows how.
 
-Version 0.0.1 ships one feature: the delayed prompt.
+Version 0.0.1 ships one feature: the delayed prompt, plus a StoreKit-backed purchase action to pair with it.
 
 
 ## The delayed prompt
@@ -61,8 +61,9 @@ than it waited the first time.
 the end of February the way `Calendar` normally clamps.
 
 **The cadence is locked on first contact.** Whatever `atMost:` said the first time a prompt was ever checked is what
-governs from then on. Changing it in a later version of your app doesn't reach anyone who already has the old one, so
-nobody's cadence can be quietly ratcheted up by an update.
+governs from then on — for anyone who has ever been checked for it, including someone still waiting on their first
+appearance. Changing it in a later version of your app only reaches people who have never once been checked for that
+prompt before, so nobody's cadence can be quietly ratcheted up by an update.
 
 **It can't escalate.** `PromptInterval` is a closed set whose shortest case is `.weekly`. There's no way to spell
 anything more frequent, and no way to make an interval shrink over time.
@@ -111,7 +112,7 @@ Write your own by conforming to `MonetizationPromptStyle` and implementing `make
 
 What happens when someone says yes is a `MonetizationPromptAction`. Two ship with the package:
 
-- `.storeKitPurchase` — presents the system purchase sheet. With no `productID:`, it uses the prompt's own identifier as
+- `.storeKitPurchase` — presents the system purchase sheet. With no `productId:`, it uses the prompt's own identifier as
   the product ID, so a matching pair doesn't have to be typed twice.
 - `.appStoreReview` — asks the system for a review. Not a purchase at all, which is rather the point.
 
@@ -123,7 +124,7 @@ struct KoFiLinkAction: MonetizationPromptAction {
     let url: URL
 
     @MainActor
-    func perform(for identifier: MonetizationPromptIdentifier) async throws -> MonetizationPromptActionOutcome {
+    func perform(id identifier: MonetizationPromptIdentifier) async throws -> MonetizationPromptActionOutcome {
         // Open the URL, then decide what that meant
         .succeeded
     }
@@ -135,7 +136,9 @@ struct KoFiLinkAction: MonetizationPromptAction {
 
 iOS 17+, macOS 14+, tvOS 17+, watchOS 10+, visionOS 1+. Swift 6.
 
-Depends on [SpecialString](https://github.com/RougeWare/Swift-Special-String) for the identifier type.
+Depends on [SpecialString](https://github.com/RougeWare/Swift-Special-String) for the identifier type,
+[SerializationTools](https://github.com/RougeWare/Swift-SerializationTools) for JSON persistence, and
+[SimpleLogging](https://github.com/RougeWare/Swift-Simple-Logging) for diagnostic logging.
 
 
 

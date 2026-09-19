@@ -2,7 +2,7 @@
 
 **Model:** Claude Opus 5
 **Initial Director:** Ky
-**Branch base:** `production` (work done on `feature/MVP`)
+**Branch base:** `nightly` (work done on `feature/MVP`)
 
 > **This journal was backfilled, not written as I went.** `AGENTS.md` is explicit that writing it afterward is the
 > failure mode, and that's what happened here: the repo's markdown files were added after my work was already done, so I
@@ -229,24 +229,184 @@ are fine under the same reasoning that fixed error 1, but that is reasoning and 
 Ky confirmed on 2026-09-15 that these resolved all compiler errors.
 
 
+## 2026-09-18 — Responding to review comments
+
+**Model:** Claude Opus 5
+**Director:** Ky
+
+Ky pasted a full review pass on the PR. Six items needed a decision before I could touch code; the rest were
+unambiguous and I executed them directly. This entry is written the same session the work happened in, not
+reconstructed afterward — unlike the entry above, so take the ordering here as reliable.
+
+### I raised `.pending` as an open question when it wasn't one
+
+The reviewer asked why `.pending` and `.notCompleted` were both unused and suggested merging them. My first answer
+found the real cause — there's no `Transaction.updates` listener, so an Ask-to-Buy approval that lands after
+`perform()` has already returned is never finished and its prompt never retires, despite the person having paid — and
+then I framed *fixing that* as a choice for Ky to make ("add the listener now, or merge and file separately?"). Ky
+called this correctly: I'd found a bug and asked permission to fix it rather than just fixing it. Lesson for future
+review passes: a genuine design tradeoff is a question; a defect I've already diagnosed is not, and I should say
+"I'm fixing this" rather than "should I fix this."
+
+`.notCompleted` renamed to `.abandoned` per Ky's call, once we agreed `.pending` needed to mean something.
+
+### My first explanation of `transaction.finish()` placement failed to communicate at all
+
+I answered the reviewer's question about `finish()` timing by inventing a hypothetical scenario ("Apple's rule
+is...", framed around on-demand resources) without grounding it in what this codebase actually does. Ky's response:
+"There's nothing in this framework about tipping. Could you please use plain English? I can't understand you." Fair —
+I'd answered a question about our code with an explanation that didn't reference our code at all. Second attempt
+stated plainly what `StoreKitPurchaseAction` actually does (no download step, no content-delivery step, so nothing to
+wait on) and that landed. Noting this because it's a communication failure, not a technical one, and worth watching
+for in future reviews: explaining an API rule in the abstract is not the same as explaining why *this* code satisfies
+it.
+
+### `PromptInterval`: treated two non-conflicting requests as though they conflicted
+
+Ky asked for the interval math to be both inlined (no extra stack frame) and recursively derived
+(`quarterly`/`monthly` from `yearly`, for a single source of truth on what a year is). I told Ky these pulled in
+opposite directions and proposed reconciling them with a separate constant. They don't conflict — `@inline(__always)`
+on `approximateSeconds` makes the recursive derivation (`Self.yearly.approximateSeconds / 12`) compile down to the
+same flat lookup either way. Ky pointed this out directly. I should have thought of `@inline(__always)` myself before
+declaring a conflict; it was sitting right there in the language.
+
+`.yearly` now uses the mean tropical year (365.24219 days) as the base case, per Ky's stated preference, with
+`.monthly` and `.quarterly` deriving from it.
+
+### `nextEligible` missing: I invented complexity that a simpler existing mechanism already covered
+
+My first proposal for a corrupt/missing `nextEligible` was to reconstruct the record as `.tracking` with
+`nextEligible` set to "now plus one interval," falling back to a hardcoded `.yearly` if the interval itself was also
+unreadable. Ky asked "why not just read it from the dev again?" — meaning the descriptor's own `atMost` — which is
+obviously correct and I should have proposed myself.
+
+Once I actually sat down to implement it, I found something better than even that: I don't need any bespoke
+reconstruction logic at all. `MonetizationPromptStore.shouldShow(_:now:)` already has a `case nil` branch — "never
+checked before" — that writes exactly `.tracking(interval: descriptor.interval, nextEligible: descriptor.interval
+.date(after: now))` and returns `false`. If I make per-record decoding drop a corrupted entry entirely (rather than
+try to reconstruct it), that entry becomes indistinguishable from "never checked," and the existing first-check path
+handles it correctly with zero new code: it uses the descriptor's current interval, it never treats the record as
+`.done` (so it can't suppress a prompt for someone who already paid), and it waits a full interval before showing
+anything (so it can't show up under someone who just dismissed it). I built more than was needed on the first pass by
+not asking whether the existing code already solved the problem before designing a new mechanism to solve it again.
+
+Implemented as: `MonetizationPromptStore.readRecords(from:)` now decodes each stored record individually (via
+`JSONSerialization` per-key, then `SerializationTools`' `MonetizationPromptRecord(jsonData:)` per entry) and drops —
+logging via `SimpleLogging` — only the one that fails, rather than the previous behavior where any single corrupt
+byte anywhere in the whole persisted dictionary silently reset every prompt in the app to a fresh-install state. That
+old behavior was Ky's own finding, not something I'd have caught: "any corrupted data means all data is lost" was
+correct and needed fixing regardless of the `nextEligible` question specifically.
+
+### A bug I introduced and caught before Ky saw it: `AppStoreReviewAction` would not have compiled on watchOS
+
+Adding the optional `scene`/`viewController` init overrides, my first draft split the platform-conditional code into
+independent `#if canImport(UIKit) && !os(watchOS)` and `#if canImport(AppKit)` blocks for the stored property and the
+init, with a separate unconditional fallback gated on `#if !canImport(UIKit) && !canImport(AppKit)`.
+
+That fallback condition is wrong. `canImport(UIKit)` is `true` on watchOS — some UIKit types (colors, fonts) really
+are importable there — which is exactly why the *original* file (and my own `perform` rewrite, which I'd already
+gotten right) guards the *scene-lookup* code specifically with `&& !os(watchOS)`, not the import itself. My fallback
+condition tested `!canImport(UIKit)`, which is `false` on watchOS, so on watchOS: the UIKit branch doesn't compile
+(`!os(watchOS)` excludes it), the AppKit branch doesn't compile (no AppKit), and the fallback doesn't compile either
+(`canImport(UIKit)` is true). Net result: zero initializers on watchOS, on a package whose `Package.swift` explicitly
+targets watchOS 10+. This would have failed to build.
+
+I caught this myself, before presenting the code, by going back to first-principles on *why* the original file wrote
+`!os(watchOS)` rather than assuming a symmetrical `#if canImport(X) { } #if canImport(Y) { } #if neither { }` shape
+was safe to reuse for a different declaration in the same file. Fixed by using one `#if / #elseif / #else` chain
+across the property, the init, and (already correct) `perform`, so all three branch identically and there's no seam
+where they can disagree about which platform they're on.
+
+### A wrong claim about Swift itself, which I stated to myself with unwarranted confidence before checking
+
+Moving `MonetizationPromptStore`'s static state into a private extension (per review), I assumed — without
+verifying — that Swift disallows *stored* properties in extensions categorically, and built a workaround: a `private
+var` at global file scope, with a computed property in the extension proxying to it. I should have caught this myself
+even without searching, because that workaround directly violates the BHStudios rule I'm supposed to be applying
+throughout this exact file ("global constants live in extensions or types, never in global scope") — I broke the
+rule while implementing a change whose entire purpose was compliance with the surrounding rules.
+
+I searched before finishing rather than leaving it, and confirmed: Swift extensions cannot add *instance* stored
+properties, but *can* add stored *static* properties, in the same file as the type they extend (see e.g.
+<https://github.com/swiftlang/swift/issues/43605>, and general confirmation that `extension Int { static let a = 1
+}` compiles). Reverted to plain `static var stores` / `static var knownDescriptors` directly in the private
+extension — no workaround needed at all. Worth remembering: this specific Swift quirk (static-yes, instance-no) is
+easy to get backwards, and I got it backwards on the first pass.
+
+### A decision I made to route around uncertainty rather than resolve it by guessing
+
+The `.pending` fix needs a way to look up a prompt's full `Descriptor` from just a `MonetizationPromptIdentifier`
+(that's all a StoreKit transaction gives back). The obvious design is a `[MonetizationPromptIdentifier :
+Descriptor]` dictionary, which requires `MonetizationPromptIdentifier` (a `SpecialString` special type from an
+external RougeWare package I don't have source access to) to conform to `Hashable`. Marketing copy for the package
+("in all but name, it acts like a string") makes this likely, but I could not verify it and have no compiler to
+find out the hard way. Rather than assume, I keyed the new registry by the same SHA-256 digest string
+`MonetizationPromptStore` already uses for `records` — a mechanism already proven to work for exactly this purpose —
+so the question of `MonetizationPromptIdentifier`'s own `Hashable` conformance never has to be answered. If it turns
+out the type is `Hashable` after all, this is a slightly indirect way to get there; if it isn't, this is the only way
+that would have compiled at all.
+
+### Verified rather than assumed, this session
+
+- Apple's own guidance that `Transaction.updates` plus `finish()` is the correct pattern for unfinished consumables,
+  confirmed via a DTS engineer's answer: <https://developer.apple.com/forums/thread/787431>.
+- `SerializationTools`' actual API shape (`jsonData()` throws and returns non-optional `Data`; Ky's own sketched
+  snippet assumed an optional-returning form that wouldn't compile) and `SimpleLogging`'s `log(error:)`, both read
+  directly from their READMEs rather than recalled from training data.
+- Current tagged versions of both: `SerializationTools` 1.1.1, `SimpleLogging` 0.5.2, via live GitHub/Swift Package
+  Index fetch, not guessed.
+
+### Found while writing this entry, not caught before delivery — the pending-purchase fix has a real gap
+
+`StoreKitPurchaseAction`'s new `PendingPurchaseTracker` closes the gap Ky and I discussed — an approved Ask-to-Buy
+purchase getting `finish()`ed and its prompt retired — only within a single app process's lifetime. Its
+`waitingIdentifiers` table is pure in-memory actor state, never persisted, and the `Transaction.updates` listener
+starts lazily, only the first time a purchase in *that specific process* resolves as `.pending`.
+
+The realistic Ask-to-Buy timeline is: person taps buy, request goes to a parent, parent approves at some point in the
+next several hours or days. The person has almost certainly force-quit or the OS has evicted the app well before
+that approval lands. On the next launch, nothing has called `perform(id:)` yet, so the listener never starts, so
+there's no live subscriber to `Transaction.updates` when the approval actually arrives. Whether StoreKit surfaces
+that transaction to some *later* listener depends on OS-level redelivery behavior I have not verified for the
+cross-launch case specifically (only for "within one still-running process" per the DTS thread above). I am not
+confident this resolves itself; I'm only confident I haven't shown that it does.
+
+This is the scenario the fix exists for, and it's the one I have the least confidence the fix actually covers. I
+didn't catch this before telling Ky the six items were done — I noticed it only by making myself write down, for
+this entry, what I'd actually built rather than what I'd intended to build. Flagged to Ky directly in chat, not
+silently fixed, because the actual repair (start the listener unconditionally and early — plausibly at
+`MonetizationPromptStore` construction — rather than lazily behind a `.pending` result, and derive
+`waitingIdentifiers` from `MonetizationPromptStore.knownDescriptors` at listener-start rather than only at
+track-time) is more invasive than anything Ky signed off on this round.
+
+
 ## Verification status
 
-**Nothing in this package was compiled or run by me at any point.** No Swift toolchain was available in my environment
-for any part of this work. Ky compiled it; that is the only evidence it builds.
+**Nothing in this package has been compiled or run by me at any point, including everything added in the 2026-09-18
+entry above.** No Swift toolchain has been available in my environment for any part of this work. Ky compiled the
+2026-09-14 version and confirmed it builds; the 2026-09-18 changes (the `PendingPurchaseTracker` actor, the
+per-record decode isolation in `MonetizationPromptStore`, the two new dependencies) have not been built by anyone
+yet.
 
 The tests in `Tests/MonetizationToolsTests/` were written but **never executed by me** — they cover `PromptInterval`
 calendar math (including the January 31st → end-of-February clamp) and `MonetizationPromptRecord` encoding (including
-asserting the exact `{"done":true}` shape). They should be run before this merges.
+asserting the exact `{"done":true}` shape). They should be run before this merges, and now also need a run after the
+`.yearly` base case changed from 365 to 365.24219 days — the existing `everyIntervalMovesForward` test should still
+pass since it only checks direction, not magnitude, but I haven't verified that by running it.
 
 Specifically untested by anyone as far as I know, and worth real attention in review:
 
+- **The pending-purchase tracker likely doesn't survive an app relaunch**, which is the realistic case for Ask-to-Buy
+  given approval timelines. See the 2026-09-18 entry above for the specific mechanism. This is the highest-priority
+  item in this list — it's a gap in the fix for the exact scenario the fix was written for.
 - The App Group path. `MonetizationPromptScope.appGroup(_:)` falls back to `UserDefaults.standard` when
   `UserDefaults(suiteName:)` returns nil, which happens when the app lacks the entitlement. That fallback is silent, and
   means a misconfigured App Group degrades to per-app behavior rather than failing loudly. I'm not certain that's the
   right call and didn't raise it with Ky at the time.
 - An app using both `.perApp` and an App Group gets two independent stores persisting under the same defaults key in
   different suites. I believe that's correct; it's never been exercised.
-- Every StoreKit path, including the `.pending` / Ask-to-Buy branch.
+- Whether `MonetizationPromptIdentifier` conforms to `Hashable` remains unverified either way — see the 2026-09-18
+  entry above for why the new descriptor registry was designed not to need an answer to this.
 - `@Entry` requires recent tooling; if the deployment toolchain objects, it's a mechanical swap back to a manual
   `EnvironmentKey`.
 - `.background(.background.secondary, in: .rect(cornerRadius: 12))` in `DefaultMonetizationPromptStyle` is the single
