@@ -9,26 +9,19 @@ import Foundation
 
 
 
-/// Something a monetization prompt can offer to do: a StoreKit purchase, an App Store review request, a link out to a
-/// support page, anything else.
-///
-/// Write your own by conforming to this protocol. The prompt's scheduling, storage, and presentation don't know or
-/// care what your action does; they only look at the ``MonetizationPromptActionOutcome`` it returns.
+/// The actual action that is performed when a user chooses to proceed with a monetization prompt
 public protocol MonetizationPromptAction: Sendable {
     
-    /// Does whatever this action does.
+    /// Carries out the action
     ///
-    /// This is called when someone taps into the prompt's own offer button, before whatever your action itself shows
-    /// happens — for ``StoreKitPurchaseAction``, that's before Apple's payment sheet appears, since this method is
-    /// what makes that sheet appear.
+    /// This is called when the user chooses to proceed with the monetization prompt's offer, before whatever your action itself shows.
+    /// This is what actually makes the payment/donation UI appear.
     ///
-    /// - Parameter identifier: The identifier of the prompt this action belongs to. Use it to derive something
-    ///                         action-specific (a StoreKit product ID, a URL slug) instead of making the developer
-    ///                         say the same string twice.
+    /// - Parameter identifier: Identifies the prompt this action belongs to.
     ///
-    /// - Returns: What became of it
+    /// - Returns: A value describing the result of the action
     /// - Throws: Anything which went wrong. A thrown error is treated the same as
-    ///           ``MonetizationPromptActionOutcome/abandoned``.
+    ///           ``MonetizationPromptActionOutcome/abandoned``, but allows you to present the error to the user.
     @MainActor
     func perform(id identifier: MonetizationPromptIdentifier) async throws -> MonetizationPromptActionOutcome
 }
@@ -39,18 +32,19 @@ public protocol MonetizationPromptAction: Sendable {
 ///
 /// A prompt only ever changes what it remembers when this is ``succeeded``. Every other case leaves its schedule
 /// exactly as it was, so someone backing out of an offer is never treated the same as someone who actually declined.
+
+/// The result of running a ``MonetizationPromptAction``, describing what to do next.
+///
+/// The monetization prompt will decide how to handle the returned outcome.
 public enum MonetizationPromptActionOutcome: Sendable, Hashable {
     
-    /// It worked. This prompt is retired permanently and will never be shown again.
+    /// The user completed the transaction succesfully
     case succeeded
     
-    /// It's underway but not yet resolved, like a StoreKit purchase awaiting Ask to Buy approval from a parent.
-    ///
-    /// Nothing is recorded here, and the prompt keeps its existing schedule. Whatever eventually finishes this
-    /// purchase is responsible for retiring the prompt itself once the approval actually comes through.
-    case pending
+//    /// The user has started making the transaction but has not yet finished
+//    case pending // Is this necessary?
     
-    /// It didn't happen: cancelled, dismissed, failed, whatever.
+    /// The transaction didn't happen: cancelled, dismissed, failed, whatever.
     ///
     /// Nothing is recorded and the prompt keeps its existing schedule.
     case abandoned

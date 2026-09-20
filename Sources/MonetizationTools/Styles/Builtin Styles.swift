@@ -11,8 +11,7 @@ import SwiftUI
 
 // MARK: - Default
 
-/// Lays the prompt's contents out in a rounded rectangle with a secondary background. Deliberately plain; it's meant to
-/// sit inside somebody else's design without arguing with it.
+/// The default prompt style: minimal, likely to fit into existing apps without issue
 public struct DefaultMonetizationPromptStyle: MonetizationPromptStyle {
     
     public init() {}
@@ -32,8 +31,7 @@ public struct DefaultMonetizationPromptStyle: MonetizationPromptStyle {
 
 public extension MonetizationPromptStyle where Self == DefaultMonetizationPromptStyle {
     
-    /// Lays the prompt's contents out in a rounded rectangle with a secondary background. Deliberately plain; it's
-    /// meant to sit inside somebody else's design without arguing with it.
+    /// The default prompt style: minimal, likely to fit into existing apps without issue
     static var `default`: Self { .init() }
 }
 
@@ -41,7 +39,7 @@ public extension MonetizationPromptStyle where Self == DefaultMonetizationPrompt
 
 // MARK: - Plain
 
-/// Applies nothing at all. The contents are on their own, for when the prompt's looks are entirely your business.
+/// The non-style; applies nothing at all. This just displays the prompt's contents unchanged
 public struct PlainMonetizationPromptStyle: MonetizationPromptStyle {
     
     public init() {}
@@ -56,6 +54,6 @@ public struct PlainMonetizationPromptStyle: MonetizationPromptStyle {
 
 public extension MonetizationPromptStyle where Self == PlainMonetizationPromptStyle {
     
-    /// Applies nothing at all. The contents are on their own, for when the prompt's looks are entirely your business.
+    /// The non-style; applies nothing at all. This just displays the prompt's contents unchanged
     static var plain: Self { .init() }
 }

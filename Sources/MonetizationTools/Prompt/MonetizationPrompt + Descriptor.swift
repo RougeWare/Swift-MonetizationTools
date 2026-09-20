@@ -11,8 +11,7 @@ import Foundation
 
 public extension MonetizationPrompt {
     
-    /// Everything which defines one monetization prompt: how often it may appear, how far its memory reaches, and
-    /// what happens when someone takes it up on its offer.
+    /// Everything which defines one monetization prompt: how often it may appear, how far its memory reaches, and what happens when someone takes it up on its offer.
     ///
     /// Declare these once, as static members, and refer to them by dot-shorthand wherever the prompt appears:
     ///

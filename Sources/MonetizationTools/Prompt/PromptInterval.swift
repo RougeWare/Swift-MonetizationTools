@@ -9,27 +9,23 @@ import Foundation
 
 
 
-/// How long a monetization prompt waits: both before its very first appearance, and between every appearance after
-/// that. One value covers both, so a prompt can never nag sooner than it waited the first time.
+/// How long before a monetization prompt appears (again).
 ///
-/// These are the only cadences there are, on purpose. The shortest is ``weekly``, and the set is closed so that no
-/// amount of cleverness can produce something more aggressive.
+/// This is for both before its very first appearance, and between each appearance after that.
 ///
-/// Intervals are calendar-correct rather than a fixed number of seconds, so "monthly" from January 20th means February
-/// 20th, not 30 days later. Day-of-month overflow clamps the way `Calendar` normally clamps it: January 31st + 1 month
-/// is the last day of February, not the 2nd or 3rd of March.
+/// Intervals are calendar-correct rather than a fixed number of seconds, so "monthly" from January 20th means February 20th, not 30 days later. This uses ``Calendar``, so edge cases are handled how it handles them: January 31st + 1 month is the last day of February, not the 2nd or 3rd of March, etc..
 public enum PromptInterval: String, Sendable, Hashable, Codable, CaseIterable {
     
-    /// Once every week. The most frequent cadence this package will ever express.
+    /// Once every week
     case weekly
     
-    /// Once every month, on the same day-of-month.
+    /// Once every month, on the same day-of-month
     case monthly
     
-    /// Once every three months, on the same day-of-month.
+    /// Once every three months, on the same day-of-month
     case quarterly
     
-    /// Once every year, on the same month and day-of-month.
+    /// Once every year, on the same month and day-of-month
     case yearly
 }
 
@@ -37,7 +33,7 @@ public enum PromptInterval: String, Sendable, Hashable, Codable, CaseIterable {
 
 internal extension PromptInterval {
     
-    /// This interval expressed as calendar components, for feeding to `Calendar`
+    /// This interval expressed as date components, for feeding to `Calendar`
     var dateComponents: DateComponents {
         switch self {
         case .weekly:    DateComponents(weekOfYear: 1)
@@ -48,11 +44,13 @@ internal extension PromptInterval {
     }
     
     
-    /// The moment one of this interval past the given date, according to the given calendar.
-    ///
+    /// Advances the given date by this interval's amount
+    /// 
     /// - Parameters:
-    ///   - date:     The moment to measure from
-    ///   - calendar: _optional_ - The calendar which decides what "a month" means here. Defaults to the current one.
+    ///   - date:     The reference date
+    ///   - calendar: _optional_ - The calendar which decides what "a month" means here. Defaults to the current calendar.
+    ///
+    /// - Returns: One interval after the reference date
     func date(after date: Date, in calendar: Calendar = .current) -> Date {
         calendar.date(byAdding: dateComponents, to: date)
             ?? date.addingTimeInterval(approximateSeconds) // Only reachable if the calendar can't represent the result
@@ -61,9 +59,7 @@ internal extension PromptInterval {
     
     /// A rough number of seconds in this interval, used only as a fallback when calendar math fails outright.
     ///
-    /// `.yearly` uses the mean tropical year (365.24219 days) rather than a plain 365, since this is the only place
-    /// a year's length is defined and everything shorter than a year derives from it. `@inline(__always)` keeps that
-    /// derivation from costing an extra stack frame; the whole thing still compiles down to a handful of constants.
+    /// `.yearly` uses the mean tropical year (365.24219 days) rather than a plain 365, since this is the only place a year's length is defined and other values derive from it.
     @inline(__always)
     private var approximateSeconds: TimeInterval {
         switch self {
