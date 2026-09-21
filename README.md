@@ -72,6 +72,9 @@ anything more frequent, and no way to make an interval shrink over time.
 moment arrives while someone is sitting on the screen it lives on waits for the next visit rather than materializing
 mid-tap and moving whatever they were reaching for.
 
+**Only a person moves it along.** A prompt nobody answers stays where it is, and shows again each time its screen
+appears. Only `snooze()`, `decline()`, or a completed purchase changes when (or whether) it shows next.
+
 **Backing out isn't the same as refusing.** Cancelling a purchase sheet records nothing: the prompt keeps its schedule
 and stays on screen. Only `snooze()` and `decline()` change anything, because only those are things a person actually
 asked for.
@@ -88,7 +91,7 @@ By default a prompt's history is this app's alone. Share it across a family of a
 static let supporterUnlock = Self(
     "org.example.supporterUnlock",
     atMost: .monthly,
-    scope: .appGroup("group.org.example.apps"),
+    scope: .appGroup(id: "group.org.example.apps"),
     action: .storeKitPurchase
 )
 ```
@@ -121,16 +124,19 @@ What happens when someone says yes is a `MonetizationPromptAction`. One ships wi
   the product ID, so a matching pair doesn't have to be typed twice.
 
 Write your own by conforming to `MonetizationPromptAction`. Nothing about the scheduling, storage, or presentation
-machinery needs to know what yours does.
+machinery needs to know what yours does. An action is handed the environment of the prompt showing it, so it can read
+`openURL`, `purchase`, and the like without any setup of yours.
 
 ```swift
 struct KoFiLinkAction: MonetizationPromptAction {
     let url: URL
 
     @MainActor
-    func perform(id identifier: MonetizationPromptIdentifier) async throws -> MonetizationPromptActionOutcome {
+    func perform(id identifier: MonetizationPromptIdentifier,
+                 in environment: EnvironmentValues) async throws -> MonetizationPromptActionOutcome {
         // Open the URL, then decide what that meant
-        .succeeded
+        environment.openURL(url)
+        return .succeeded
     }
 }
 ```

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 
 
@@ -17,13 +18,17 @@ public protocol MonetizationPromptAction: Sendable {
     /// This is called when the user chooses to proceed with the monetization prompt's offer, before whatever your action itself shows.
     /// This is what actually makes the payment/donation UI appear.
     ///
-    /// - Parameter identifier: Identifies the prompt this action belongs to.
+    /// - Parameters:
+    ///   - identifier:  Identifies the prompt this action belongs to.
+    ///   - environment: The environment of the view which shows the prompt. Use it for whatever only SwiftUI can do
+    ///                  correctly from here, such as `purchase` (which presents in the right window) or `openURL`.
     ///
     /// - Returns: A value describing the result of the action
     /// - Throws: Anything which went wrong. A thrown error is treated the same as
     ///           ``MonetizationPromptActionOutcome/abandoned``, but allows you to present the error to the user.
     @MainActor
-    func perform(id identifier: MonetizationPromptIdentifier) async throws -> MonetizationPromptActionOutcome
+    func perform(id identifier: MonetizationPromptIdentifier,
+                 in environment: EnvironmentValues) async throws -> MonetizationPromptActionOutcome
 }
 
 

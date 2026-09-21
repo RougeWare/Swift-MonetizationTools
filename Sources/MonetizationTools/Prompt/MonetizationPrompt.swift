@@ -20,8 +20,8 @@ import SwiftUI
 /// MonetizationPrompt(for: .licensePurchase) { flow in
 ///     Text("Purchase a license?")
 ///     Button("Purchase now") {
-///         do {
-///             try flow.present()         // Required:   You should _always_ include a button which can call
+///         Task {
+///             try await flow.present()   // Required:   You should _always_ include a button which can call
 ///                                        // `flow.present()`. This is what actually presents the user with the
 ///                                        // ability to pay you.
 ///         }
@@ -54,6 +54,13 @@ public struct MonetizationPrompt: View {
     /// Whether the prompt is currently added to the view hierarchy
     @State private var isShowing = false
     
+    /// Whether ``MonetizationPromptFlow/present()`` is currently running. It lives here because the flow is remade each
+    /// time this view is.
+    @State private var isPresenting = false
+    
+    /// The environment of this view, which the flow passes to the prompt's action
+    @Environment(\.self) private var environment
+    
     
     /// Create a monetization prompt
     ///
@@ -69,6 +76,18 @@ public struct MonetizationPrompt: View {
     }
     
     
+    /// What a person can do about this prompt, handed to the dev's content
+    private var flow: MonetizationPromptFlow {
+        MonetizationPromptFlow(
+            descriptor: descriptor,
+            store: PromptStore(scope: descriptor.scope),
+            environment: environment,
+            isShowing: $isShowing,
+            isPresenting: $isPresenting
+        )
+    }
+    
+    
     public var body: some View {
         Group {
             if isShowing {
@@ -78,7 +97,7 @@ public struct MonetizationPrompt: View {
             }
         }
         .onAppear {
-            isShowing = // figure this out based on the descriptor and past appearances, dismissals, etc.
+            isShowing = PromptStore(scope: descriptor.scope)?.check(descriptor) ?? false
         }
     }
 }
