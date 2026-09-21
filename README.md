@@ -96,6 +96,11 @@ static let supporterUnlock = Self(
 Declining it in one app then declines it in all of them, so a suite can't collectively nag harder than any one of its
 members would.
 
+On macOS, an app distributed outside the Mac App Store should name its group with its Team ID as the prefix (like
+`ABCDE12345.org.example.apps`) instead of `group.…`. Otherwise macOS 15 and later can show the person an alert saying the
+app "would like to access data from other apps", which this package can neither detect nor prevent. Apple describes the
+rules [in this forum thread](https://developer.apple.com/forums/thread/758358).
+
 
 ## Styling
 
@@ -110,11 +115,10 @@ Write your own by conforming to `MonetizationPromptStyle` and implementing `make
 
 ## Actions
 
-What happens when someone says yes is a `MonetizationPromptAction`. Two ship with the package:
+What happens when someone says yes is a `MonetizationPromptAction`. One ships with the package:
 
 - `.storeKitPurchase` — presents the system purchase sheet. With no `productId:`, it uses the prompt's own identifier as
   the product ID, so a matching pair doesn't have to be typed twice.
-- `.appStoreReview` — asks the system for a review. Not a purchase at all, which is rather the point.
 
 Write your own by conforming to `MonetizationPromptAction`. Nothing about the scheduling, storage, or presentation
 machinery needs to know what yours does.

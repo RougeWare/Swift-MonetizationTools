@@ -14,6 +14,7 @@ The following is a list of all LLMs used in the creation & maintenance of Deadas
 
 - Claude (directed by @KyNorthstar)
     - 5 Opus - Initial starting point
+    - 5 Sonnet - Documenting/planning
 - Apple Foundation Models (built into Xcode, used by @KyNorthstar and probably other contributors as well)
     - _version unknown_ - Autocomplete
 
