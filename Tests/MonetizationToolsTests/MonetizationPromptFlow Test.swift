@@ -156,4 +156,21 @@ struct MonetizationPromptFlowTest {
             #expect(PromptHistory.done == store.reading(for: Self.identifier).recordedHistory)
         }
     }
+    
+    
+    #if DEBUG
+    /// Resetting erases the history, but leaves the prompt on screen
+    @Test func resettingErasesTheHistoryAndLeavesThePromptShowing() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            let state = ViewState()
+            store.retire(Self.identifier)
+            
+            flow(running: StubAction(), store: store, state: state).reset()
+            
+            #expect(state.isShowing)
+            #expect(store.reading(for: Self.identifier).isNeverChecked)
+        }
+    }
+    #endif
 }

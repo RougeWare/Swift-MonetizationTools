@@ -116,6 +116,20 @@ public extension MonetizationPromptFlow {
     func decline() {
         retireAndHide()
     }
+    
+    
+    #if DEBUG
+    /// Erases this prompt's stored history, so its next check behaves like the first one after a fresh install.
+    ///
+    /// It doesn't hide the prompt. Call it from a button, not directly in the prompt's content, since content is built
+    /// again each time the view updates.
+    ///
+    /// This exists only in debug builds. Code which uses it has to be wrapped in `#if DEBUG`, so it can't reach a
+    /// release build by accident.
+    func reset() {
+        store?.forget(descriptor.identifier)
+    }
+    #endif
 }
 
 

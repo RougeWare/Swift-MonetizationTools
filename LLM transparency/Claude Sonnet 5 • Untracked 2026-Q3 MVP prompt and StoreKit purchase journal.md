@@ -1,6 +1,6 @@
 # Untracked 2026-Q3: v1 prompt engine and StoreKit purchase action
 
-**Model:** Claude Sonnet 5
+**Model:** Claude Sonnet 5 (planning) and Claude Opus 5 (writing)
 **Initial Director:** Ky
 **Branch base:** unknown (the project zip is named `MonetizationTools_feature_MVP_2026-09-20_1634`)
 
@@ -408,3 +408,78 @@ watchOS, and visionOS, which unit tests alone don't exercise) are still open, al
 list, since none of that runs under `swift test`.
 
 Only one file changed since the last entry: `Tests/MonetizationToolsTests/Test Support.swift`.
+
+
+
+## 2026-09-21: Cold-start fix and debug tools
+
+**Model:** Claude Sonnet 5 (planning) and Claude Opus 5 (writing)
+**Director:** Ky
+
+Ky gave an explicit go-ahead to write code for this ("Go for writing code!"), after reviewing a summary of every change.
+
+
+### What Ky found and decided
+
+- **`.onAppear` never fired** on the `Group` while the prompt was hidden, as feared. Fixed by changing it to a `ZStack`.
+  Ky noted that during an animated insert or removal, the `ZStack`'s center alignment may briefly govern layout where
+  the dev's own container used to. Ky put that on the backlog; it doesn't block v1.
+- **Debug tools**, shaped by Ky: `flow.reset()` and `.debug(monetizationPrompt: .isShowing, $binding)`.
+  - `reset()` erases storage back to blank, so the next check acts like a first launch. It's called from a button.
+  - The binding is two-way: it controls what's shown, and every real change is copied back to it.
+  - It always resyncs: each time the prompt's view appears, the binding is set to what the real schedule says.
+  - Leave no trace of debug-only code in release builds, so devs can't be tempted to use it in production.
+- Ky rejected my first idea of `.debug` returning a modified copy of `self`, since I had no prior art for copying a
+  stateful view that way. It uses the environment instead, like the style does.
+- Ky rejected my first draft of `.debug` naming its binding `isShowing` and hardcoding `Bool`. It's generic over the
+  aspect's value type now, which is Ky's signature.
+
+
+### What I changed
+
+- `MonetizationPrompt.swift`: `Group` became `ZStack`. Added a debug-only `@Environment` property for the dev's binding.
+  Added `effectiveIsShowing`, one `Binding<Bool>` which `body`, `.onAppear`, and the flow all go through. It reads the
+  dev's binding first (debug only) and writes to both. Because the flow writes through it too, `snooze()`,
+  `decline()`, and a finished purchase all update the dev's binding with no separate `.onChange`.
+- `MonetizationPrompt + Debug.swift` (new, all `#if DEBUG`): `MonetizationPromptDebugAspect<Debuggable>` (holds a key
+  path into the environment, so the value type is carried by the compiler with no cast), its `.isShowing` member, the
+  `.debug(monetizationPrompt:_:)` modifier, and the environment entry.
+- `PromptStore.swift`: `forget(_:)`, which removes a prompt's record. My summary said this wouldn't be `#if DEBUG`, but
+  its only caller is, so in a release build it would be dead code, and Ky asked for no traces. I made it `#if DEBUG`.
+- `MonetizationPromptFlow.swift`: `reset()`, `#if DEBUG`. I kept it in this file rather than a new one because it needs
+  the flow's `private` store and descriptor, and a separate file would have meant loosening their access.
+- Tests: three store tests for `forget`, one flow test for `reset`. All `#if DEBUG`.
+- `README.md`: a "While developing" section, written before the code.
+
+
+### Self-review
+
+- Release builds: every debug symbol is declared and referenced only inside `#if DEBUG` (checked with grep). A dev's
+  call to `.debug(…)` or `reset()` outside `#if DEBUG` fails to compile in release, which catches a forgotten guard.
+- Without `.debug(…)` attached, `effectiveIsShowing` behaves exactly like `$isShowing` did.
+- I made the getter's `return` explicit in both `#if` branches, and replaced `override?.wrappedValue = x` with
+  `if let`, because I wasn't sure the compiler accepts implicit return through `#if`, or optional-chained assignment
+  through a get-only `@Environment` property.
+- `reset()` doesn't hide the prompt. That's the literal decision ("wipe storage back to blank"). Asked Ky whether it
+  should also hide.
+- My copy doesn't have Ky's fixes for two of the three earlier compiler errors, since I don't know what they were.
+  Merging this zip over Ky's tree could undo them.
+
+
+### Unverified
+
+1. Whether reading the dev's binding inside `effectiveIsShowing`'s getter makes SwiftUI re-render the prompt when the
+   dev flips their toggle. The live-peek behavior depends on it.
+2. `@Entry` with a `Binding<Bool>?` value, under Swift 6's `Sendable` checks.
+3. `environment(_:_:)` accepting `Binding<Debuggable>` for a key path whose value is `Binding<Debuggable>?`.
+4. The `ZStack` leaves no gap in a dev's `VStack` while hidden.
+
+
+### Manual test list additions
+
+- Transitions and animations on the prompt's content, inside a leading- or trailing-aligned container (backlog item).
+- Flip the dev toggle on and off without leaving the screen: the prompt follows it, and storage doesn't change.
+- Leave the screen and come back: the toggle resyncs to the real schedule.
+- Snooze, decline, and a finished purchase each flip the dev toggle off.
+- `reset()` from a button, then leave and come back: the prompt behaves like a first launch (hidden, cadence re-locked).
+- A release build contains none of this: `.debug(…)` and `reset()` outside `#if DEBUG` fail to compile.

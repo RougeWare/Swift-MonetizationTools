@@ -61,6 +61,11 @@ public struct MonetizationPrompt: View {
     /// The environment of this view, which the flow passes to the prompt's action
     @Environment(\.self) private var environment
     
+    #if DEBUG
+    /// The dev's binding from ``debug(monetizationPrompt:_:)``, or `nil` when none is attached
+    @Environment(\.monetizationPromptDebugIsShowing) private var debugIsShowingOverride
+    #endif
+    
     
     /// Create a monetization prompt
     ///
@@ -76,28 +81,53 @@ public struct MonetizationPrompt: View {
     }
     
     
+    /// Whether the prompt is on screen. Everything which reads or changes that goes through here.
+    ///
+    /// In release builds this is just `isShowing`. In debug builds, a binding attached with
+    /// ``debug(monetizationPrompt:_:)`` decides what's shown, and every change is copied to it too, so it always matches.
+    private var effectiveIsShowing: Binding<Bool> {
+        Binding(
+            get: {
+                #if DEBUG
+                return debugIsShowingOverride?.wrappedValue ?? isShowing
+                #else
+                return isShowing
+                #endif
+            },
+            set: { newValue in
+                isShowing = newValue
+                #if DEBUG
+                if let debugIsShowingOverride {
+                    debugIsShowingOverride.wrappedValue = newValue
+                }
+                #endif
+            }
+        )
+    }
+    
+    
     /// What a person can do about this prompt, handed to the dev's content
     private var flow: MonetizationPromptFlow {
         MonetizationPromptFlow(
             descriptor: descriptor,
             store: PromptStore(scope: descriptor.scope),
             environment: environment,
-            isShowing: $isShowing,
+            isShowing: effectiveIsShowing,
             isPresenting: $isPresenting
         )
     }
     
     
     public var body: some View {
-        Group {
-            if isShowing {
+        ZStack {
+            if effectiveIsShowing.wrappedValue {
                 style.makeBody(configuration: .init(
                     content: .init(wrapping: content(flow))
                 ))
             }
         }
         .onAppear {
-            isShowing = PromptStore(scope: descriptor.scope)?.check(descriptor) ?? false
+            effectiveIsShowing.wrappedValue = PromptStore(scope: descriptor.scope)?.check(descriptor) ?? false
         }
     }
 }
