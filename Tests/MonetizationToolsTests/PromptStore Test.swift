@@ -175,4 +175,50 @@ struct PromptStoreTest {
             #expect(PromptHistory.done == store.reading(for: "com.example.test").recordedHistory)
         }
     }
+    
+    
+    #if DEBUG
+    /// Forgetting returns a prompt to how it was before its first check, even after it was retired
+    @Test func forgettingReturnsARetiredPromptToNeverChecked() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            store.retire("com.example.test")
+            
+            store.forget("com.example.test")
+            
+            #expect(store.reading(for: "com.example.test").isNeverChecked)
+        }
+    }
+    
+    
+    /// After forgetting, the next check is a true first check: hidden, and the cadence locked in again from the
+    /// interval the descriptor declares now
+    @Test func checkAfterForgettingActsLikeTheFirstCheck() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            _ = store.check(descriptor(atMost: .weekly), at: try Date.noon(year: 2026, month: 9, day: 20), in: .testing)
+            
+            store.forget("com.example.test")
+            let isDue = store.check(descriptor(atMost: .monthly), at: try Date.noon(year: 2026, month: 10, day: 1), in: .testing)
+            
+            let expectedNextEligible = try Date.noon(year: 2026, month: 11, day: 1)
+            #expect(false == isDue)
+            #expect(PromptHistory.tracking(interval: .monthly, nextEligible: expectedNextEligible) == store.reading(for: "com.example.test").recordedHistory)
+        }
+    }
+    
+    
+    /// Forgetting one prompt leaves the others alone
+    @Test func forgettingOnePromptLeavesOthersAlone() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            store.retire("com.example.one")
+            store.retire("com.example.two")
+            
+            store.forget("com.example.one")
+            
+            #expect(PromptHistory.done == store.reading(for: "com.example.two").recordedHistory)
+        }
+    }
+    #endif
 }

@@ -13,8 +13,8 @@ This folder contains various files which help increase the transparency of that 
 The following is a list of all LLMs used in the creation & maintenance of Deadass Simple Media Player, along with a brief description of what they were used for.
 
 - Claude (directed by @KyNorthstar)
-    - 5 Opus - Initial starting point
-    - 5 Sonnet - Documenting/planning
+    - 5 Opus - Initial starting point, code writing
+    - 5 Sonnet - Documenting/planning, code writing
 - Apple Foundation Models (built into Xcode, used by @KyNorthstar and probably other contributors as well)
     - _version unknown_ - Autocomplete
 

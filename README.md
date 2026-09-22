@@ -142,6 +142,40 @@ struct KoFiLinkAction: MonetizationPromptAction {
 ```
 
 
+## While developing
+
+Two tools make a prompt easy to work on without waiting weeks for it to come due. Both exist only in debug builds, so
+every use of them has to be wrapped in `#if DEBUG` too, and none of it can reach a release build.
+
+```swift
+@State private var isShowingPrompt = false
+
+var body: some View {
+    #if DEBUG
+    Toggle("Show prompt", isOn: $isShowingPrompt)
+    #endif
+
+    MonetizationPrompt(for: .licensePurchase) { flow in
+        // …your usual content…
+
+        #if DEBUG
+        Button("Reset") { flow.reset() }
+        #endif
+    }
+    #if DEBUG
+    .debug(monetizationPrompt: .isShowing, $isShowingPrompt)
+    #endif
+}
+```
+
+- `.debug(monetizationPrompt: .isShowing, _:)` binds a prompt's visibility to your own `Bool`, both ways. Set it to show
+  or hide the prompt right now, without changing its stored history. It also follows the prompt: when the prompt shows
+  or hides for a real reason (its schedule, `snooze()`, `decline()`, or a purchase), your `Bool` changes to match.
+  Each time the prompt's view appears, your `Bool` is reset to what the real schedule says.
+- `flow.reset()` erases the prompt's stored history, so its next check behaves like the first launch after a fresh
+  install. It doesn't hide the prompt by itself.
+
+
 ## Requirements
 
 iOS 17+, macOS 14+, tvOS 17+, watchOS 10+, visionOS 1+. Swift 6.

@@ -181,6 +181,18 @@ internal extension PromptStore {
     func retire(_ id: MonetizationPromptIdentifier) {
         remember(.done, for: id)
     }
+    
+    
+    #if DEBUG
+    /// Erases everything stored for a prompt, so its next check behaves like the first one after a fresh install.
+    ///
+    /// This is for ``MonetizationPromptFlow/reset()``, and exists only in debug builds.
+    ///
+    /// - Parameter id: Identifies the prompt
+    func forget(_ id: MonetizationPromptIdentifier) {
+        defaults.removeObject(forKey: Self.key(for: id))
+    }
+    #endif
 }
 
 
