@@ -483,3 +483,717 @@ Ky gave an explicit go-ahead to write code for this ("Go for writing code!"), af
 - Snooze, decline, and a finished purchase each flip the dev toggle off.
 - `reset()` from a button, then leave and come back: the prompt behaves like a first launch (hidden, cadence re-locked).
 - A release build contains none of this: `.debug(…)` and `reset()` outside `#if DEBUG` fail to compile.
+
+
+
+## 2026-09-26: Full plan, no code written: for Ky's approval before Opus implements
+
+**Model:** Claude Sonnet 5 (planning and every doc comment below)
+**Director:** Ky
+
+Ky asked for a complete, detailed writeup of everything decided in the review, including full doc comment text, to
+review before authorizing any actual file changes. Opus will implement from this once Ky approves it. Nothing in
+`Sources/` or `Tests/` has changed. This entry, edited in place after a first pass Ky caught real problems in, is
+the plan.
+
+Working copy for this plan is the zip Ky sent 2026-09-25, not my earlier copy; I diffed the two and only three
+trivial things differed (an attribution header, one test's local-variable extraction, one README sentence), none of
+which affect anything below.
+
+This entry is meant to stand on its own: someone reading only this file, with no access to the conversation that
+produced it, should be able to follow every decision and why it was made. Ky flagged that an earlier draft of this
+same entry didn't meet that bar, especially the List/Form section; this version is written to fix that.
+
+
+### Namespacing: final, approved
+
+Every public type whose name currently starts with `MonetizationPrompt` gets namespaced under it, the way
+`MonetizationPrompt.Descriptor` already works in the shipped skeleton. `PromptStore`, `PromptState` (renamed below),
+`PromptInterval`, `PromptStateLookup` (new, replaces `PromptHistoryReading`) stay as they are: internal, never
+prefixed `MonetizationPrompt` to begin with, out of scope by Ky's own confirmation.
+
+| Was | Becomes |
+|---|---|
+| `MonetizationPromptAction` | `MonetizationPrompt.Action` |
+| `MonetizationPromptActionOutcome` | `MonetizationPrompt.Action.Outcome` |
+| `MonetizationPromptScope` | `MonetizationPrompt.Scope` |
+| `MonetizationPromptStyle` | `MonetizationPrompt.Style` |
+| `MonetizationPromptStyleConfiguration` | `MonetizationPrompt.Style.Configuration` |
+| `AnyMonetizationPromptStyle` (internal) | `MonetizationPrompt.AnyStyle` |
+| `MonetizationPromptFlow` | `MonetizationPrompt.Flow` |
+| `MonetizationPromptIdentifier` | `MonetizationPrompt.Identifier` |
+| `MonetizationPromptDebugAspect` | `MonetizationPrompt.DebugAspect` |
+| `DefaultMonetizationPromptStyle` | `MonetizationPrompt.DefaultStyle` |
+| `PlainMonetizationPromptStyle` | `MonetizationPrompt.PlainStyle` |
+
+The two built-in styles stay their own concrete types rather than becoming static members of `.Style`, matching how
+SwiftUI's own built-in style types work, and sit as `.Style`'s siblings under `MonetizationPrompt` rather than
+nested inside `.Style` itself, matching how SwiftUI's concrete style types aren't nested inside the protocol they
+conform to either.
+
+Files follow the rename, matching the existing `+` convention already used for `MonetizationPrompt + Descriptor.swift`
+and `MonetizationPrompt + Debug.swift`:
+- `MonetizationPromptFlow.swift` → `MonetizationPrompt + Flow.swift`
+- `MonetizationPromptScope.swift` → `MonetizationPrompt + Scope.swift`
+- `MonetizationPromptStyle.swift` → `MonetizationPrompt + Style.swift`
+- `MonetizationPromptIdentifier.swift` → `MonetizationPrompt + Identifier.swift`
+- `MonetizationPromptAction.swift` → `MonetizationPrompt + Action.swift`
+- `StoreKitPurchaseAction.swift` stays where it is; it's a concrete conformer, not part of the namespace itself.
+
+Every doc comment and cross-reference throughout every file gets updated to the new names as part of this same pass.
+I'm not re-listing every single cross-reference edit below; they follow mechanically from the table above.
+
+
+### MonetizationPrompt.swift: List/Form
+
+Background, for anyone reading only this file: `MonetizationPrompt`'s `body` decides whether to show its content by
+checking a stored schedule once, the first time the view appears on screen, using SwiftUI's `.onAppear`. The first
+version of this wrapped the conditional content in a `Group`. That never worked: a modifier on `Group` applies
+separately to each of `Group`'s children individually rather than once to `Group` itself, and when the prompt is
+hidden, its one child is `EmptyView`, which participates in no lifecycle events at all, so `.onAppear` never ran and
+the prompt could never even find out it was allowed to show itself. Switching `Group` to `ZStack` fixed that, since
+a real container like `ZStack` has its own identity independent of its children, and this was confirmed working
+on-device: real purchases, real snoozes, real declines, all correctly checked and hidden.
+
+Then Ky put the same `MonetizationPrompt` inside a `List` and a `Form`, and found two new problems specific to that
+context, neither present in a plain `VStack`: while hidden, the row still takes up a visible blank space instead of
+collapsing to nothing; while shown, the dev's own buttons and text don't lay out the way they would in the dev's own
+container, they stack on top of each other, centered, instead of flowing normally. The working theory is `ZStack`'s
+own default center alignment applying to whatever's inside it, and possibly `List` reserving row space based on the
+row's structural presence rather than its rendered content.
+
+Three candidate fixes, to be tried in this order:
+
+1. **`AnyView`.** Resolve the conditional into one concrete `AnyView` value in a computed property first, then attach
+   `.onAppear` to that one value directly, with no `ZStack` or `Group` in between. The reasoning: `AnyView` has
+   stable identity regardless of what it currently wraps, so it should sidestep both `Group`'s per-child modifier
+   distribution and `ZStack`'s alignment behavior. This is the one I'm writing into the codebase; Ky tests it first.
+2. **Plain `@ViewBuilder`, `if`/`else`, no wrapper at all.** Ky's own suggestion, and I think it's actually the
+   stronger candidate of the two SwiftUI-only options, for a specific reason: I found a firsthand report of someone
+   hitting the identical "`EmptyView` never fires my lifecycle callback" problem, and their fix was swapping
+   `EmptyView()` for `Rectangle().hidden()`, since `EmptyView` specifically never participates in the view hierarchy
+   at all, independent of `Group` or anything else. What that same report doesn't answer is whether a modifier
+   attached directly to the *result* of an `if`/`else` (a type called `_ConditionalContent` internally) behaves like
+   `Group` (distributes into each branch, so it'd hit the same `EmptyView` wall) or like a real container (has its
+   own identity, so it wouldn't). I don't have a source confirming either way. Ky will try this one locally, by hand,
+   after testing the `AnyView` version.
+3. **An always-real placeholder.** Ky's fallback idea: show something unconditional and never empty, like a
+   `ProgressView`, whose own `.onAppear` does the schedule check, then switches to either the real content or
+   nothing once the answer is known. This sidesteps the whole question above entirely, since a genuinely
+   always-constructed view is never ambiguous about whether it fires its own lifecycle events. The tradeoff is a
+   possible one-frame flash of the placeholder, even though the check itself is synchronous. Ky will test this one
+   too, regardless of whether 1 or 2 works, to compare.
+
+Ruled out entirely: exposing any way for a dev to ask `MonetizationPrompt` "are you due right now" ahead of time, so
+they could gate their own `if` inside their own `List`. Ky's read, which I agree with: it's an abusable API (a dev
+could build their own nagging UI around it, defeating every anti-nagging guarantee this package makes), it forces
+the dev to duplicate the same identifier in two places, which is exactly the kind of setup burden this package
+exists to remove, and it undercuts the entire value proposition of a self-contained prompt. If the blank-row problem
+turns out to be `List` reserving space for the row's mere existence, independent of what's inside it, no amount of
+changing what's inside the row fixes that, and it becomes a documented limitation of using `MonetizationPrompt`
+inside `List`/`Form` specifically, not a bug to keep chasing. Ky separately floated a *much* narrower future idea for
+that case: a second, optional callback a dev could supply for what renders in the empty state, so they control the
+placeholder without ever learning whether or why it's empty. Not building that now, just recording it as the outer
+bound of what Ky's open to here.
+
+Whichever of the three ships, its own final doc comment isn't written yet, since it depends on which one actually
+works on-device. I'll add that once Ky reports back.
+
+
+### `.pending`: the Ask to Buy case, made sturdy
+
+Background: `StoreKitPurchaseAction` runs when someone taps a prompt's purchase button. Apple's Family Sharing lets a
+child's purchase attempt get deferred to a parent for approval instead of completing immediately; StoreKit reports
+this back as a `pending` result. Ky's UX call, from earlier in this review: while pending, the prompt shows nothing
+at all and ignores its own schedule entirely, since there's nothing useful to prompt the person to do while someone
+else is deciding. Once the parent actually answers, the intent is for that to resolve the same way a normal
+purchase attempt resolves elsewhere in this package: either succeeded, or abandoned.
+
+Ky's instruction on this pass: assume the app gets force-quit and relaunched while a request is still waiting, since
+that's ordinary behavior, not an edge case, especially with this package's own tightest interval being weekly and
+its most likely audience being kids, who don't reliably keep an app running for days. Build the sturdy version, not
+a version that happens to work if nothing unusual occurs.
+
+**What I confirmed about the platform, so this design isn't guessing:**
+- An unfinished transaction, one this package hasn't called `.finish()` on yet, gets redelivered through
+  `Transaction.updates` on every subsequent app launch, for as long as it stays unfinished, per Apple's own stated
+  behavior. This is true even if it resolved while the app was fully closed. This means the *success* path is
+  already sturdy across a force-quit for free, as long as something starts listening to `Transaction.updates` on
+  every launch and nothing gets finished before it's matched to the right prompt.
+- The *decline* path has no equivalent guarantee I could find. Multiple developers, in reports from a few years
+  back, describe StoreKit 2 simply never emitting anything distinguishable for a declined or expired Ask to Buy
+  request, an app has no way to tell "the parent said no" apart from "nobody's looked at it yet." I couldn't confirm
+  whether this has changed since. **This needs a real sandbox test before it ships**: decline an Ask to Buy request
+  and see whether anything at all comes through `Transaction.updates` for it. Everything below is designed for the
+  answer being no, per Ky's own instruction to build the correct thing and accept the platform's limits rather than
+  bodge around them. **If the sandbox test instead shows a decline is detectable**, the design changes (see "If
+  testing finds a decline signal" below), and this entry gets updated again before anything's built for that case.
+
+**The design, for "no decline signal exists":**
+
+A purchase going pending needs to survive relaunch in two separate ways: the prompt itself has to remember "I'm
+waiting on something, don't consult my normal schedule," and something has to remember "this specific purchase
+attempt belongs to this specific prompt," so that whenever a resolution does arrive, it goes to the right place.
+
+1. **`PromptState` (renamed from `PromptHistory`, see below) gains a third case, `.pending`.** This is what makes the
+   prompt itself, in its own normal stored state, refuse to become due while waiting, across any number of
+   relaunches. Full doc text is below.
+
+2. **A separate, small record of which purchases are still outstanding.** Resolving a purchase only ever tells this
+   package a product identifier. A product identifier isn't always the same string as the prompt's own identifier:
+   `.storeKitPurchase(productId:)` lets a dev use a different one on purpose. So something has to remember, for each
+   outstanding purchase, which product identifier it's for, which prompt asked for it, and which scope that prompt's
+   state lives in, so the eventual result can be written to the right place. This is new: `PendingPurchase`,
+   `PendingPurchaseIndex`. Full text below.
+
+3. **A background listener**, `PendingPurchaseListener`, that starts the moment a `StoreKitPurchaseAction` is
+   *constructed*, not when someone taps a button. Since the README's own examples show a prompt's action declared as
+   a static property, this means the listener is already running from very close to app launch, for any app that
+   uses this action at all, with nothing for the dev to set up. It watches `Transaction.updates` for the rest of the
+   process's life, and for every update, checks whether that transaction's product identifier is one it's been
+   asked to watch for. If it isn't, it does nothing at all: doesn't read it, doesn't finish it, doesn't touch it,
+   specifically so a dev's own, separate StoreKit code, for a real subscription, say, is never interfered with. If
+   it is one of ours, it writes `.done` into that prompt's own stored state, removes the pending record, and
+   finishes the transaction.
+
+**Why `MonetizationPrompt.Action.perform` needs a new `scope` parameter for this** (asked about directly in chat;
+recorded here too, since it's a real signature change): `StoreKitPurchaseAction` is the thing that has to write the
+pending record in step 2, at the moment it learns a purchase went pending, since it's the only thing that knows the
+real product identifier being used. But writing that record correctly needs to know which *scope* the requesting
+prompt uses, `.perApp` or a specific App Group, because that's what decides which storage the eventual `.done` has
+to land in. `perform` currently receives the prompt's identifier and the SwiftUI environment, but not its scope.
+This can't be solved by having `MonetizationPrompt.Flow` handle it instead, even though the flow already has the
+scope, because the flow only ever sees the generic `.pending` outcome case with no payload, deliberately, since a
+custom, non-StoreKit action might use `.pending` for its own unrelated reason and shouldn't be forced to know
+anything about product identifiers. And it can't be solved by handing the scope to the action once, at construction
+time, because an action value like `.storeKitPurchase` can be built once and is typically declared as a shared,
+static value, independent of which specific prompt or scope it eventually ends up attached to; the only moment we
+know for certain which specific prompt this specific attempt belongs to is when `perform` actually runs. So the
+parameter has to be threaded through the call itself. Nothing has shipped yet, so I'm treating this as an ordinary
+change rather than a breaking one, but it does touch every conformer of the protocol, including any a dev might
+already be writing.
+
+**If testing finds a decline signal:** the design above only ever writes success. If a genuine decline can be
+detected after all, the listener would also need to write `.abandoned`'s equivalent back into the prompt's own
+state, restoring whatever it was scheduled as before it went pending, the same interval and the same next-eligible
+date, not a freshly computed one, to match how every other `.abandoned` outcome in this package leaves the schedule
+completely untouched. That means `.pending` would need to carry its prior schedule along with it instead of being a
+bare case, so there's something to restore. I'm not building this version now; I don't know yet which branch we're
+actually in, and building both speculatively is exactly the kind of unrequested complexity to avoid. I'll rewrite
+this section with the concrete shape once the sandbox test has an answer.
+
+
+### `MonetizationPrompt.Flow.present()`: two entry points
+
+Background: `present()` is the method a prompt's own accept button calls. It has to be `async` and `throws`, since
+the underlying action, a real purchase sheet, genuinely has to be waited on and can genuinely fail. Ky's concern:
+that shouldn't be the *only* option, since most devs won't want to write `Task { try? await flow.present() }`
+boilerplate for a button that, most of the time, nobody's checking the failure of anyway.
+
+Resolution: keep the throwing, async version as the primary, fully-capable one, and add a second, plain version
+under the same name, with no `try` or `await` needed at the call site, for a dev who genuinely doesn't need to react
+to failure. It starts the same underlying work and returns immediately without waiting for it; if the work
+eventually fails, that failure is logged as a warning and otherwise dropped, never surfaced to that caller. Both
+versions call one shared, private implementation, so there's no risk of the two overloads calling each other by
+accident.
+
+
+### MonetizationPrompt.Identifier
+
+The existing doc line warning that changing a prompt's identifier re-asks everyone who already declined is being
+deleted outright, not reworded. Reasoning, confirmed with Ky: naming that consequence at all, even as a warning
+against doing it, is itself what tips a dev off that the lever exists, which is worse than a dev never having the
+idea in the first place.
+
+
+### PromptHistory.swift → PromptState.swift
+
+Two separate changes here, both from this review.
+
+**The rename.** `PromptHistory` implies a log of everything that's happened to a prompt over time. What's actually
+stored is just the single current state, waiting, pending, or done, overwritten each time, with no record of
+anything before it. `PromptState` says what it actually is. This rename applies everywhere: the type, the file, both
+`PromptStore` methods that touch it and their doc comments, and the JSON commentary.
+
+**Dropping the dedicated `PromptHistoryReading` enum in favor of the standard library.** Its three cases,
+"never checked," "read successfully," "stored but unreadable," map exactly onto `Optional<Result<PromptState, any
+Error>>`: `nil`, `.success`, `.failure`. Ky asked directly whether the custom type was earning its place over that,
+or just duplicating it. It wasn't: there's no behavior or safety the custom enum provided that the stdlib
+composition doesn't already provide identically. The only real difference is naming at the call site, and once
+actually written out, the stdlib version's pattern matches turned out exactly as deep as the custom enum's already
+were (`.some(.success(.scheduled(...)))` versus the old `.recorded(history: .tracking(...))`), so there wasn't
+even a readability cost to dropping it. Kept as a `typealias`, `PromptStateLookup`, so the exact shape can change
+later without touching call sites, and so call sites still read in domain language rather than raw stdlib names.
+
+
+### File plan
+
+New:
+- `Sources/MonetizationTools/Actions/StoreKitPurchaseAction + PendingPurchase.swift`
+
+Renamed (namespacing, listed above), content also changing beyond the rename:
+- `MonetizationPromptAction.swift` → `MonetizationPrompt + Action.swift`: `perform` gains `scope`; `Outcome` gains
+  `.pending`.
+- `MonetizationPromptFlow.swift` → `MonetizationPrompt + Flow.swift`: `present()` split into throwing/non-throwing;
+  `.pending` handling added.
+- `MonetizationPromptScope.swift` → `MonetizationPrompt + Scope.swift`: gains `Codable`.
+- `MonetizationPromptIdentifier.swift` → `MonetizationPrompt + Identifier.swift`: the one line deleted.
+- `StoreKitPurchaseAction.swift`: `init` starts the listener; `.pending` handling; `outcome(of:)` doc rewritten.
+
+Renamed, content otherwise unchanged beyond the type name in cross-references:
+- `MonetizationPromptStyle.swift` → `MonetizationPrompt + Style.swift`
+- `Builtin Styles.swift`: type names only
+
+Renamed and internally restructured:
+- `PromptHistory.swift` → `PromptState.swift`: the rename above, the discriminated JSON shape below, the new
+  `.pending` case, and `PromptHistoryReading.swift`'s content folded in as the `PromptStateLookup` alias and its
+  extension methods, replacing that file entirely.
+
+Unchanged beyond following the renames above: `MonetizationPrompt + Descriptor.swift`, `MonetizationPrompt +
+Debug.swift`, `PromptStore.swift` (method renames from the earlier review round still apply: `reading(for:)` →
+`lookUpState(for:) -> PromptStateLookup`, `remember(_:for:)` → `persist(_:for:)`, `forget(_:)` → `reset(_:)`),
+`PromptInterval.swift`.
+
+Every test file gets the renamed types; `PromptHistory Test.swift` → `PromptState Test.swift` with a new suite for
+the `.pending` case's JSON shape and scheduling behavior, and a new `PendingPurchase Test.swift` for the index.
+
+
+### The stored JSON shape, corrected
+
+Ky caught a real problem in the first draft of this entry: with `{"done":true}` and `{"pending":true}` as separate,
+independent keys, nothing prevents both being present at once, and what that would even mean depends on which key
+gets checked first in code, which could silently change later. Fixing this with a single discriminant field instead:
+every stored form carries one `"state"` key naming which case it is, so the three states are mutually exclusive by
+construction, not by convention.
+
+- Scheduled: `{"state":"scheduled","interval":"monthly","nextEligible":"2026-12-20T12:00:00Z"}`
+- Pending: `{"state":"pending"}`
+- Done: `{"state":"done"}`
+
+On the date format specifically, asked about directly in chat: yes, that's really ISO 8601 in the stored form, not a
+Unix timestamp, and I checked why rather than assuming it: `PromptStore` calls SerializationTools'
+`.jsonString()` / `init(jsonString:)`, not Foundation's `JSONEncoder`/`JSONDecoder` directly, and SerializationTools'
+own date handling defaults to ISO 8601. I confirmed this by reading `PromptStore.swift` itself, not from memory of
+having written it originally.
+
+
+### Doc comments: full text
+
+These are the doc comment and the exact signature it belongs to, nothing else. No method bodies, no property
+initializers; those are implementation, decided by the design description above and elsewhere in this entry, not
+prescribed here.
+
+`MonetizationPrompt + Action.swift`, the outcome type:
+
+    /// What happened when a ``MonetizationPrompt/Action`` ran.
+    public enum Outcome: Sendable {
+
+        /// The person completed what the prompt offered. The prompt is retired: it won't show again.
+        case succeeded
+
+        /// Something outside this package has to happen before this is settled, like a parent approving an Ask to
+        /// Buy request. The prompt is hidden, and its schedule is ignored, until that's resolved.
+        case pending
+
+        /// The person didn't complete it, or backed out. Nothing changes; the prompt keeps its schedule.
+        case abandoned
+    }
+
+`perform`'s new signature:
+
+    /// - Parameters:
+    ///   - identifier:  Identifies the prompt this action belongs to
+    ///   - scope:       The prompt's scope. An action which needs to find its own stored state again later, like a
+    ///                  StoreKit purchase waiting on Ask to Buy, needs this.
+    ///   - environment: The environment of the view showing the prompt. Use it for whatever only SwiftUI can do
+    ///                  correctly from here, such as `purchase` (which presents in the right window) or `openURL`.
+    ///
+    /// - Returns: What happened
+    /// - Throws: Anything which went wrong. Treated the same as ``Outcome/abandoned``, but lets the caller show the
+    ///           error.
+    @MainActor
+    func perform(id identifier: MonetizationPrompt.Identifier,
+                 scope: MonetizationPrompt.Scope,
+                 in environment: EnvironmentValues) async throws -> MonetizationPrompt.Action.Outcome
+
+`StoreKitPurchaseAction + PendingPurchase.swift`, complete new file:
+
+    /// One purchase `StoreKitPurchaseAction` is still waiting to hear back about, like an Ask to Buy request.
+    ///
+    /// This is separate from any prompt's own stored state because resolving a purchase only ever tells us a
+    /// product identifier, and a product identifier isn't always the prompt identifier that requested it. See
+    /// ``StoreKitPurchaseAction/storeKitPurchase(productId:)``.
+    internal struct PendingPurchase: Codable, Hashable, Sendable {
+
+        /// The product identifier this purchase is for
+        let productId: String
+
+        /// The prompt which requested it
+        let promptIdentifier: MonetizationPrompt.Identifier
+
+        /// Where that prompt's stored state lives
+        let scope: MonetizationPrompt.Scope
+    }
+
+
+
+    /// Every purchase this app is still waiting to hear back about.
+    ///
+    /// Backed by `UserDefaults.standard`, regardless of any individual prompt's own scope. A purchase can only ever
+    /// be started by this app's own process, using this app's own product catalog, so there's nothing to share
+    /// across an App Group here.
+    internal struct PendingPurchaseIndex {
+
+        /// Makes an index backed by the given database.
+        ///
+        /// - Parameter defaults: _optional_ - The database to keep the index in. Tests use a throwaway one;
+        ///                       everything else uses the default.
+        init(defaults: UserDefaults = .standard)
+
+
+        /// Every purchase currently being waited on. Corrupted or missing data reads as empty, so a listener with
+        /// nothing readable to check does nothing, which is the safe failure here.
+        var all: [PendingPurchase] { get }
+
+
+        /// Starts waiting on a purchase.
+        ///
+        /// - Parameter purchase: The purchase to wait on
+        func add(_ purchase: PendingPurchase)
+
+
+        /// Stops waiting on every purchase for the given product, because one of them just resolved.
+        ///
+        /// - Parameter productId: The product identifier which resolved
+        func remove(productId: String)
+    }
+
+
+
+    /// Watches for StoreKit purchases which resolve after this app stopped waiting for them, like an Ask to Buy
+    /// request a parent approves after the child has closed the app.
+    ///
+    /// Starts the first time a ``StoreKitPurchaseAction`` is made, and keeps running for the rest of the process.
+    /// Nothing about this needs setup: every purchase this action makes is already tracked in
+    /// ``PendingPurchaseIndex``.
+    ///
+    /// This only ever acts on a transaction whose product identifier is in that index. Anything else, a
+    /// subscription, a purchase from a dev's own separate StoreKit code, is left completely alone: not read, not
+    /// finished, not touched.
+    internal enum PendingPurchaseListener {
+
+        /// Makes sure the listener is running. Safe to call any number of times.
+        static func start()
+    }
+
+`StoreKitPurchaseAction.swift`, the rewritten doc for `outcome(of:)`, now also recording what it needs to for a
+pending purchase:
+
+    /// Decides what a purchase result means for a prompt, and records anything this package needs to remember to
+    /// make sense of it later.
+    ///
+    /// Separate from ``perform(id:scope:in:)`` so it can be checked without the App Store.
+    ///
+    /// - Parameters:
+    ///   - result:     What StoreKit reported
+    ///   - identifier: The prompt this purchase belongs to
+    ///   - scope:      Where that prompt's stored state lives
+    ///   - productId:  The product identifier which was purchased
+    ///
+    /// - Returns: ``MonetizationPrompt/Action/Outcome/succeeded`` for a verified purchase, which is also finished.
+    ///            ``MonetizationPrompt/Action/Outcome/pending`` for Ask to Buy or any other deferred purchase, which
+    ///            is recorded in ``PendingPurchaseIndex`` so ``PendingPurchaseListener`` can find it later.
+    ///            Cancelled purchases are ``MonetizationPrompt/Action/Outcome/abandoned``.
+    /// - Throws: The verification error, for a purchase which couldn't be verified
+    static func outcome(of result: Product.PurchaseResult,
+                        identifier: MonetizationPrompt.Identifier,
+                        scope: MonetizationPrompt.Scope,
+                        productId: String) async throws -> MonetizationPrompt.Action.Outcome
+
+`MonetizationPrompt + Scope.swift`, the added conformance, noted as an addition to the existing type doc rather than
+a rewrite of it:
+
+    /// Conforms to `Codable` so a deferred purchase can record which scope its prompt belongs to, for
+    /// ``PendingPurchaseListener`` to write into once it resolves.
+    public enum MonetizationPrompt.Scope: Sendable, Hashable, Codable
+
+`PromptState.swift`, the whole type, with the corrected, mutually-exclusive JSON shape:
+
+    /// The stored state of one prompt: waiting to become due, waiting on something external to resolve, or retired
+    /// for good. This is all that's ever stored for a prompt.
+    ///
+    /// The stored form is JSON, tagged with a `"state"` field naming which of these three it is, so the three are
+    /// mutually exclusive: nothing stored can ever claim to be two of these at once.
+    internal enum PromptState: Sendable, Hashable {
+
+        /// Waiting to become due. `interval` is locked in from whichever value was declared the first time this
+        /// prompt was ever checked, and never changes after that, even if the descriptor declares a different one
+        /// later. `nextEligible` is the earliest moment this prompt is due.
+        ///
+        /// Stored as `{"state":"scheduled","interval":"<case name>","nextEligible":"<ISO 8601 date>"}`, for example
+        /// `{"state":"scheduled","interval":"monthly","nextEligible":"2026-12-20T12:00:00Z"}`.
+        ///
+        /// - Parameters:
+        ///   - interval:     How long this prompt waits before showing again
+        ///   - nextEligible: The earliest moment this prompt is due
+        case scheduled(interval: PromptInterval, nextEligible: Date)
+
+        /// Something outside this package has to happen before this prompt's outcome is known, like a parent
+        /// approving an Ask to Buy request. The prompt stays hidden and its schedule is ignored until that's
+        /// resolved.
+        ///
+        /// Stored as `{"state":"pending"}`.
+        case pending
+
+        /// The person completed this prompt, or declined it for good. It never shows again.
+        ///
+        /// Stored as `{"state":"done"}`.
+        case done
+    }
+
+The `Codable` conformance's two methods, doc and signature only; the maintainer warning about not changing the
+stored shape stays a plain `//` comment placed directly above the one method it's actually about, not folded into
+either method's own doc:
+
+    /// Reads a stored state.
+    ///
+    /// Only the three shapes this type writes are accepted, so a damaged record can never be mistaken for a valid
+    /// one; it throws instead, and the caller decides what a broken record means.
+    init(from decoder: any Decoder) throws
+
+    // Never change how any of these three cases encode: doing so re-asks, or re-blocks, every prompt already stored
+    // on someone's device.
+    func encode(to encoder: any Encoder) throws
+
+`PromptStateLookup`, replacing `PromptHistoryReading.swift` entirely, folded into `PromptState.swift`:
+
+    /// What was found in storage for one prompt: nothing yet, a state that was read successfully, or something
+    /// stored which couldn't be read.
+    ///
+    /// The unreadable case has to behave differently from never-checked: the first is someone meeting the prompt
+    /// for the first time; the second is a prompt which has to stay quiet, since nobody knows what that person
+    /// already said to it.
+    internal typealias PromptStateLookup = Result<PromptState, any Error>?
+
+Its two scheduling methods, doc and signature only:
+
+    /// Decides whether a prompt is due right now, and whether this check needs to be remembered.
+    ///
+    /// The very first check of a prompt is never due. It's remembered, which locks in the interval the prompt
+    /// declared, and the prompt waits that long before its first appearance. Every check after that is due once
+    /// its stored `nextEligible` has arrived. A pending, retired, or unreadable prompt is never due.
+    ///
+    /// - Parameters:
+    ///   - declaredInterval: The interval the prompt's descriptor declares. Only used on the very first check;
+    ///                       afterward the stored, locked-in interval governs.
+    ///   - now:              The moment being checked
+    ///   - calendar:         _optional_ - The calendar which decides what "a month" means. Defaults to the
+    ///                       current calendar.
+    ///
+    /// - Returns: Whether the prompt is due, and the state to remember, only on the very first check
+    func check(declaring declaredInterval: PromptInterval,
+               at now: Date,
+               in calendar: Calendar = .current)
+    -> (isDue: Bool, stateToRemember: PromptState?)
+
+
+    /// Decides what to store after someone asks for a prompt later.
+    ///
+    /// Asking for later starts a new wait, one full interval long, counted from `now`, using the interval which
+    /// was locked in at the prompt's first check.
+    ///
+    /// - Parameters:
+    ///   - declaredInterval: The interval the prompt's descriptor declares. Only used if nothing is stored,
+    ///                       which can only happen if storage was cleared while the prompt was showing.
+    ///   - now:              The moment they asked
+    ///   - calendar:         _optional_ - The calendar which decides what "a month" means. Defaults to the
+    ///                       current calendar.
+    ///
+    /// - Returns: The state to store, or `nil` when there's nothing to change, because the prompt is pending,
+    ///            already retired, or its stored state can't be read
+    func snoozed(declaring declaredInterval: PromptInterval,
+                 at now: Date,
+                 in calendar: Calendar = .current)
+    -> PromptState?
+
+`MonetizationPrompt + Flow.swift`, `present()` split in two:
+
+    /// Gives the person what the prompt offers, like a purchase sheet.
+    ///
+    /// Call this from the button they tap to accept. It's `async`, so call it from a `Task`, or call the
+    /// non-throwing version of this instead if the caller doesn't need to react to failure. It returns once they've
+    /// finished with whatever it showed, or once whatever it's waiting on has been recorded.
+    ///
+    /// - If they complete it, the prompt goes away and never shows again.
+    /// - If it's still waiting on something else, like a parent's approval, the prompt goes away and stays away,
+    ///   ignoring its own schedule, until that's resolved elsewhere. This call doesn't retire it or bring it back.
+    /// - If they back out, nothing changes and the prompt stays on screen.
+    /// - If it throws, nothing changes and the prompt stays on screen. Show the error if you like; what it is
+    ///   depends on the prompt's action.
+    ///
+    /// Calling this while a previous call is still running does nothing, so a double tap can't start two purchases.
+    func present() async throws
+
+
+    /// Gives the person what the prompt offers, without `Task` or `try` at the call site.
+    ///
+    /// Starts the same work as the throwing version and returns immediately without waiting for it. A failure is
+    /// logged as a warning and otherwise dropped; use the throwing version instead if the caller needs to know when
+    /// something goes wrong.
+    func present()
+
+Both call one shared, private implementation with the actual logic; that method has no doc comment of its own to
+list here.
+
+`MonetizationPrompt + Identifier.swift`: the line about changing the identifier re-asking everyone is deleted, not
+reworded, nothing else in that file changes beyond the namespace rename.
+
+
+### Manual test list, additions for this batch
+
+- Decline an Ask to Buy request in sandbox. Confirm, directly, whether anything at all comes through
+  `Transaction.updates` for it. This gates which version of the pending-purchase design actually ships.
+- Approve an Ask to Buy request after force-quitting the app first. Confirm the prompt retires correctly on next
+  launch, with the app never having been in the foreground while the approval happened.
+- Confirm a prompt that's `.pending` never shows, in any of: the normal schedule becoming due, a debug force-show
+  being flipped on, the app being relaunched.
+- Confirm a dev's own, unrelated `Transaction.updates` listener (for a real subscription, say) still receives every
+  update normally, undisturbed by this package's own listener also running.
+- The three List/Form variants, per the plan above.
+
+
+### Unverified, this batch
+
+1. `MonetizationPrompt.Scope: Codable` synthesizing automatically for a two-case enum with one `String` associated
+   value. Should be free compiler synthesis; not compiled.
+2. `[PendingPurchase].jsonString()` / `[PendingPurchase](jsonString:)` working through SerializationTools' generic
+   `Encodable`/`Decodable` extensions the same way single values do.
+3. `extension PromptStateLookup { }` extending a typealias for a fully-applied generic (`Result<PromptState, any
+   Error>?`) the way extending a named type does.
+4. Whether `Transaction.updates` truly gives every independent listener its own full copy of every update, rather
+   than one listener being able to "steal" an update from another. I found indirect support for this (other
+   developers hitting double-processing bugs from having two observers, which could only happen if both really do
+   see everything), not a direct first-party confirmation.
+5. `Task.detached` constructed from a plain, non-async `init`. Should be fine; not compiled.
+6. The two `present()` overloads resolving correctly by call-site shape (`try await` picking the throwing one, a
+   bare call picking the other) rather than producing an ambiguity error. Routing both through one private,
+   shared implementation should make this moot regardless of how the overload resolves, but I want it flagged.
+7. Everything already unverified from the last entry that this batch doesn't touch: the `@Environment`-wrapped
+   `Binding` dependency question for the debug toggle, and which of the three List/Form variants, if any, actually
+   fixes the blank row.
+
+
+Waiting for Ky's mark before any of this touches `Sources/` or `Tests/`.
+
+
+
+## 2026-09-26: Implementing the approved plan
+
+**Model:** Claude Opus 5.5 (implementation)
+**Director:** Ky
+
+Ky gave an explicit go-ahead to implement the plan in the entry above, using Sonnet's doc comments. Nothing here has
+been compiled. Ky's build is the only verification.
+
+
+### What was done, as planned
+
+- Every public `MonetizationPrompt*` type is namespaced under `MonetizationPrompt`, and files follow the `+` convention.
+- `PromptHistory` is now `PromptState`, stored with a `"state"` tag: `{"state":"scheduled",…}`, `{"state":"pending"}`,
+  `{"state":"done"}`. `PromptHistoryReading` is gone; `PromptStateLookup` is `Result<PromptState, any Error>?`.
+- `PromptStore`: `reading(for:)` is `lookUpState(for:)`, `remember(_:for:)` is `persist(_:for:)`, `forget(_:)` is
+  `reset(_:)`.
+- `ActionOutcome` has `.pending`. The flow stores `.pending` and hides the prompt. `perform` takes `scope`.
+- `StoreKitPurchaseAction` records pending purchases in `PendingPurchaseIndex`. `PendingPurchaseListener` starts when a
+  `StoreKitPurchaseAction` is made, and retires every prompt waiting on a product once a verified transaction for it
+  arrives.
+- `present()` has a second, synchronous, non-throwing version. Both call one private `performPresent()`.
+- The identifier's "everyone who declined gets asked again" line is deleted.
+- `MonetizationPrompt.body` uses the `AnyView` candidate (1 of 3 in the plan) for Ky to test in `List` and `Form`.
+- Every doc comment in the plan is used as written, except where listed under "Departures" below.
+
+
+### Departures from the plan, and why
+
+1. **`Outcome` and `Configuration` aren't truly nested.** Swift allows a protocol nested in a type (SE-0404), but not a
+   type nested in a protocol. So the real types are `MonetizationPrompt.ActionOutcome` and
+   `MonetizationPrompt.StyleConfiguration`, with `typealias Outcome` and `typealias Configuration` inside the
+   protocols. This follows SwiftUI's own `ButtonStyle` / `ButtonStyleConfiguration`. Conformers still write `Outcome`
+   and `Configuration`. Whether `MonetizationPrompt.Action.Outcome` also works from outside a conformer is unverified.
+2. **`MonetizationPromptIdentifierSpecialType` became `MonetizationPrompt.IdentifierSpecialType`.** It's public and
+   starts with `MonetizationPrompt`, so it falls under the namespacing rule. The plan's table didn't list it.
+3. **The listener also reads `Transaction.unfinished` once when it starts.** Apple's documentation for
+   `Transaction.updates` says unfinished transactions reach it only once, at launch, and that an app not listening then
+   may miss them. This listener starts when a `StoreKitPurchaseAction` is first made, which can be after launch. Without
+   the extra read, an approval that arrived while the app was closed could be missed until some later launch.
+4. **`outcome(of:…)` gained an `index:` parameter**, defaulted, so tests can record into a throwaway database instead of
+   `UserDefaults.standard`. Its doc gained one parameter line for it.
+5. **The listener retires every prompt waiting on a product**, not only the first. The plan's index already removed
+   every entry for a product at once; retiring only the first would have left the others pending forever.
+6. **The debug environment key's note was corrected.** The planned text said the override can't apply to more than
+   one prompt. It can: environment values reach nested views, so a prompt placed inside another prompt's content sees it.
+   The note now says so.
+7. **`PendingPurchaseIndex` is `@MainActor`**, so its read-modify-write of `UserDefaults` can't interleave with itself.
+   `outcome(of:…)` is `@MainActor` to match.
+8. **Doc text I wrote, because the plan had none for these spots.** Sonnet should review all of it:
+   - `StoreKitPurchaseAction`'s type doc: the Ask to Buy bullet and the closing paragraph. Both said things that are now
+     false (Ask to Buy was "abandoned", and later approvals were "not handled").
+   - The `Outcome` typealias doc.
+   - Private members of the new file: `defaults`, `write(_:)`, `listener`, `handle(_:)`.
+   - `MonetizationPrompt.presentedContent`, the flow's private `performPresent()`, and `PromptStore.lookUpState(for:)`'s
+     Returns line.
+   - Two docs which linked to `present()` now use plain code voice, since `present()` now has two overloads and a bare
+     link would be ambiguous: `MonetizationPrompt`'s `isPresenting`, and the descriptor's `action` parameter.
+   - README: the Ask to Buy rule under "What the rules actually are", and the stored form now `{"state":"done"}`.
+9. **README and `MonetizationPrompt`'s doc example now call `flow.present()` directly** instead of
+   `Task { try await flow.present() }`, since avoiding that boilerplate was the point of the new overload.
+
+
+### Self-review
+
+- Every old type and method name is gone from `Sources/` and `Tests/` (checked by grep). The flow test file keeps its
+  own name, `MonetizationPromptFlow Test.swift`.
+- Style: literals on the left of every comparison, no `} else`, no force unwraps, `#if`/`#endif` balanced (all
+  checked by grep).
+- `Transaction` is written `StoreKit.Transaction`, since SwiftUI has its own `Transaction` type.
+- A `SimpleLogging` call I first wrote, `log(warning: error, "…")`, doesn't exist in that package; only `error:` has
+  that shape. It's now `log(warning: "…: \(error)")`. Checked against the package's source.
+- A DocC link I first wrote contained a disambiguation hash I had made up. Removed.
+
+
+### Known gaps, not fixed
+
+- If the app crashes after a verified purchase succeeds but before `finish()` runs, the transaction stays unfinished
+  and isn't in the pending index, so this package never retires the prompt for it. The window is tiny.
+- If a purchase goes pending and is approved within the moment between the index being written and the flow storing
+  `.pending`, the flow's `.pending` can overwrite the listener's `.done`. This needs an approval within milliseconds.
+- A declined Ask to Buy leaves the prompt pending and its index entry in place forever, as planned, until the sandbox
+  test says whether a decline can be detected.
+- `.pending` doesn't stop the debug `.isShowing` override from showing the prompt. The plan's manual test list says it
+  should; see "Questions".
+
+
+### Unverified
+
+1. Protocols nested in `public extension MonetizationPrompt` (SE-0404 says it's allowed; not compiled).
+2. `MonetizationPrompt.Action.Outcome` used from outside a conforming type.
+3. The two `present()` overloads: a sync closure picking the sync one, `try await` picking the async one. The flow
+   tests pick the sync one by function type (`@MainActor () -> Void`) and write `async let … = try await …` explicitly.
+4. `extension PromptStateLookup` on a typealias of `Optional<Result<…>>`, in source and in the tests.
+5. The default argument `index: PendingPurchaseIndex = PendingPurchaseIndex()` on a `@MainActor` function, where the
+   initializer is also `@MainActor`.
+6. `static let listener: Task<Void, Never> = Task.detached { … }` in Swift 6 mode, and passing
+   `VerificationResult<StoreKit.Transaction>` into a `@MainActor` function.
+7. Everything still open from earlier entries: the debug binding's dependency tracking, and which List/Form variant
+   works.
+
+
+### Questions for Ky
+
+1. Should `.pending` also block the debug `.isShowing` override? Right now the override wins, since forcing a prompt
+   on screen is what it's for. Blocking it means the view reads the stored state on every render.
+2. `MonetizationPrompt.Scope.appGroup(id:)`'s doc says changing the id means "everyone who already declined would be
+   asked again". That's the same lever Ky had removed from the identifier's doc. Remove it here too? That doc predates
+   this pass, so I left it.
+3. Should Sonnet do the doc-style sweep Ky asked for in the review (blunt technical notes, throughout, including the
+   README)? The plan above covered the doc comments it changed, not a full sweep, so I didn't do one.

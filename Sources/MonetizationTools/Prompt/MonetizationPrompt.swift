@@ -20,11 +20,9 @@ import SwiftUI
 /// MonetizationPrompt(for: .licensePurchase) { flow in
 ///     Text("Purchase a license?")
 ///     Button("Purchase now") {
-///         Task {
-///             try await flow.present()   // Required:   You should _always_ include a button which can call
+///         flow.present()                 // Required:   You should _always_ include a button which can call
 ///                                        // `flow.present()`. This is what actually presents the user with the
 ///                                        // ability to pay you.
-///         }
 ///     }
 ///     Button("Later") { flow.snooze() }  // Encouraged: You may include a button which allows the user to temporarily
 ///                                        // make this prompt disappear. The prompt will automatically reapper when it
@@ -46,7 +44,7 @@ public struct MonetizationPrompt: View {
     private let descriptor: Descriptor
     
     /// The prompt content the dev provided
-    private let content: (MonetizationPromptFlow) -> AnyView
+    private let content: (Flow) -> AnyView
     
     /// This styles the prompt
     @Environment(\.monetizationPromptStyle) private var style
@@ -54,8 +52,8 @@ public struct MonetizationPrompt: View {
     /// Whether the prompt is currently added to the view hierarchy
     @State private var isShowing = false
     
-    /// Whether ``MonetizationPromptFlow/present()`` is currently running. It lives here because the flow is remade each
-    /// time this view is.
+    /// Whether the flow's `present()` is currently running. It lives here because the flow is remade each time this
+    /// view is.
     @State private var isPresenting = false
     
     /// The environment of this view, which the flow passes to the prompt's action
@@ -74,7 +72,7 @@ public struct MonetizationPrompt: View {
     ///   - content:    Builds what's inside it, given the things a person can do about it
     public init<Content: View>(
         for descriptor: Descriptor,
-        @ViewBuilder content: @escaping (MonetizationPromptFlow) -> Content
+        @ViewBuilder content: @escaping (Flow) -> Content
     ) {
         self.descriptor = descriptor
         self.content = { AnyView(content($0)) }
@@ -107,8 +105,8 @@ public struct MonetizationPrompt: View {
     
     
     /// What a person can do about this prompt, handed to the dev's content
-    private var flow: MonetizationPromptFlow {
-        MonetizationPromptFlow(
+    private var flow: Flow {
+        Flow(
             descriptor: descriptor,
             store: PromptStore(scope: descriptor.scope),
             environment: environment,
@@ -118,14 +116,21 @@ public struct MonetizationPrompt: View {
     }
     
     
-    public var body: some View {
-        ZStack {
-            if effectiveIsShowing.wrappedValue {
-                style.makeBody(configuration: .init(
-                    content: .init(wrapping: content(flow))
-                ))
-            }
+    /// The prompt's content in its style while it's showing, or nothing while it isn't
+    private var presentedContent: AnyView {
+        if effectiveIsShowing.wrappedValue {
+            return style.makeBody(configuration: .init(
+                content: .init(wrapping: content(flow))
+            ))
         }
+        else {
+            return AnyView(EmptyView())
+        }
+    }
+    
+    
+    public var body: some View {
+        presentedContent
         .onAppear {
             effectiveIsShowing.wrappedValue = PromptStore(scope: descriptor.scope)?.check(descriptor) ?? false
         }

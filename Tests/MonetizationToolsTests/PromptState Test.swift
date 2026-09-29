@@ -1,5 +1,5 @@
 //
-//  PromptHistory Test.swift
+//  PromptState Test.swift
 //  MonetizationTools
 //
 //  Created by Ky directing Claude Sonnet 5 on 2026-09-20.
@@ -11,48 +11,67 @@ import Testing
 
 
 
-/// Checks the stored form of a prompt's history, since people's devices will hold it for years
-struct PromptHistoryTest {
+/// Checks the stored form of a prompt's state, since people's devices will hold it for years
+struct PromptStateTest {
     
     /// The README promises this exact form for a retired prompt, and that it costs nothing more
-    @Test func retiredPromptIsStoredAsExactlyDoneTrue() throws {
-        let data = try JSONEncoder().encode(PromptHistory.done)
+    @Test func retiredPromptIsStoredAsExactlyStateDone() throws {
+        let data = try JSONEncoder().encode(PromptState.done)
         
-        #expect("{\"done\":true}" == String(decoding: data, as: UTF8.self))
+        #expect("{\"state\":\"done\"}" == String(decoding: data, as: UTF8.self))
     }
     
     
-    /// A retired prompt reads back as retired
-    @Test func retiredPromptRoundTrips() throws {
-        let data = try JSONEncoder().encode(PromptHistory.done)
+    /// A pending prompt is stored as exactly its tag and nothing else
+    @Test func pendingPromptIsStoredAsExactlyStatePending() throws {
+        let data = try JSONEncoder().encode(PromptState.pending)
         
-        #expect(PromptHistory.done == (try JSONDecoder().decode(PromptHistory.self, from: data)))
+        #expect("{\"state\":\"pending\"}" == String(decoding: data, as: UTF8.self))
     }
     
     
-    /// A tracked prompt reads back with its locked-in interval and its next eligible moment
-    @Test func trackedPromptRoundTrips() throws {
+    /// Every state reads back as itself
+    @Test(arguments: [
+        PromptState.done,
+        PromptState.pending,
+        PromptState.scheduled(interval: .quarterly, nextEligible: Date(timeIntervalSince1970: 1_797_768_000)),
+    ])
+    func stateRoundTrips(state: PromptState) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
-        let history = PromptHistory.tracking(interval: .quarterly, nextEligible: try Date.noon(year: 2026, month: 12, day: 20))
-        let data = try encoder.encode(history)
+        let data = try encoder.encode(state)
         
-        #expect(history == (try decoder.decode(PromptHistory.self, from: data)))
+        #expect(state == (try decoder.decode(PromptState.self, from: data)))
     }
     
     
-    /// Anything which isn't one of the two shapes this type writes must fail to read, so a damaged record can't be
-    /// mistaken for a valid one
+    /// The documented example of a scheduled prompt reads as exactly what it says
+    @Test func documentedScheduledFormReads() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let stored = "{\"state\":\"scheduled\",\"interval\":\"monthly\",\"nextEligible\":\"2026-12-20T12:00:00Z\"}"
+        
+        let state = try decoder.decode(PromptState.self, from: Data(stored.utf8))
+        
+        #expect(PromptState.scheduled(interval: .monthly, nextEligible: try Date.noon(year: 2026, month: 12, day: 20)) == state)
+    }
+    
+    
+    /// Anything which isn't one of the three shapes this type writes must fail to read, so a damaged record can't be
+    /// mistaken for a valid one. That includes the untagged forms, which no build of this package ever stored.
     @Test(arguments: [
         "{}",
-        "{\"done\":false}",
-        "{\"done\":\"yes\"}",
-        "{\"interval\":\"monthly\"}",
-        "{\"nextEligible\":\"2026-12-20T12:00:00Z\"}",
-        "{\"interval\":\"fortnightly\",\"nextEligible\":\"2026-12-20T12:00:00Z\"}",
+        "{\"state\":\"retired\"}",
+        "{\"state\":true}",
+        "{\"state\":\"scheduled\"}",
+        "{\"state\":\"scheduled\",\"interval\":\"monthly\"}",
+        "{\"state\":\"scheduled\",\"interval\":\"fortnightly\",\"nextEligible\":\"2026-12-20T12:00:00Z\"}",
+        "{\"done\":true}",
+        "{\"pending\":true}",
+        "{\"interval\":\"monthly\",\"nextEligible\":\"2026-12-20T12:00:00Z\"}",
         "[]",
         "true",
         "",
@@ -62,7 +81,7 @@ struct PromptHistoryTest {
         decoder.dateDecodingStrategy = .iso8601
         
         #expect(throws: (any Error).self) {
-            try decoder.decode(PromptHistory.self, from: Data(stored.utf8))
+            try decoder.decode(PromptState.self, from: Data(stored.utf8))
         }
     }
 }
@@ -77,7 +96,7 @@ struct PromptSchedulingTest {
     @Test func firstCheckIsNeverDue() throws {
         let now = try Date.noon(year: 2026, month: 9, day: 20)
         
-        let result = PromptHistoryReading.neverChecked.check(declaring: .monthly, at: now, in: .testing)
+        let result = PromptStateLookup.none.check(declaring: .monthly, at: now, in: .testing)
         
         #expect(false == result.isDue)
     }
@@ -88,9 +107,9 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2026, month: 9, day: 20)
         let expectedNextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         
-        let result = PromptHistoryReading.neverChecked.check(declaring: .monthly, at: now, in: .testing)
+        let result = PromptStateLookup.none.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(PromptHistory.tracking(interval: .monthly, nextEligible: expectedNextEligible) == result.historyToRemember)
+        #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == result.stateToRemember)
     }
     
     
@@ -98,19 +117,19 @@ struct PromptSchedulingTest {
     @Test func promptIsNotDueBeforeItsNextEligibleMoment() throws {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2026, month: 10, day: 19)
-        let reading = PromptHistoryReading.recorded(history: .tracking(interval: .monthly, nextEligible: nextEligible))
+        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let result = reading.check(declaring: .monthly, at: now, in: .testing)
         
         #expect(false == result.isDue)
-        #expect(nil == result.historyToRemember)
+        #expect(nil == result.stateToRemember)
     }
     
     
     /// The moment itself counts, so nobody waits longer than the interval
     @Test func promptIsDueAtExactlyItsNextEligibleMoment() throws {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
-        let reading = PromptHistoryReading.recorded(history: .tracking(interval: .monthly, nextEligible: nextEligible))
+        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let result = reading.check(declaring: .monthly, at: nextEligible, in: .testing)
         
@@ -123,12 +142,23 @@ struct PromptSchedulingTest {
     @Test func duePromptChangesNothing() throws {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2027, month: 3, day: 1)
-        let reading = PromptHistoryReading.recorded(history: .tracking(interval: .monthly, nextEligible: nextEligible))
+        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let result = reading.check(declaring: .monthly, at: now, in: .testing)
         
         #expect(result.isDue)
-        #expect(nil == result.historyToRemember)
+        #expect(nil == result.stateToRemember)
+    }
+    
+    
+    /// A prompt waiting on something else, like a parent's approval, stays hidden however long it waits
+    @Test func pendingPromptIsNeverDue() throws {
+        let now = try Date.noon(year: 2126, month: 1, day: 1)
+        
+        let result = PromptStateLookup.some(.success(.pending)).check(declaring: .weekly, at: now, in: .testing)
+        
+        #expect(false == result.isDue)
+        #expect(nil == result.stateToRemember)
     }
     
     
@@ -136,22 +166,22 @@ struct PromptSchedulingTest {
     @Test func retiredPromptIsNeverDue() throws {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
         
-        let result = PromptHistoryReading.recorded(history: .done).check(declaring: .weekly, at: now, in: .testing)
+        let result = PromptStateLookup.some(.success(.done)).check(declaring: .weekly, at: now, in: .testing)
         
         #expect(false == result.isDue)
-        #expect(nil == result.historyToRemember)
+        #expect(nil == result.stateToRemember)
     }
     
     
     /// When nobody knows what a person already said, the prompt stays quiet
     @Test func unreadablePromptIsNeverDue() throws {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
-        let reading = PromptHistoryReading.unreadable(cause: StubAction.StubError())
+        let reading = PromptStateLookup.some(.failure(StubAction.StubError()))
         
         let result = reading.check(declaring: .weekly, at: now, in: .testing)
         
         #expect(false == result.isDue)
-        #expect(nil == result.historyToRemember)
+        #expect(nil == result.stateToRemember)
     }
     
     
@@ -160,11 +190,11 @@ struct PromptSchedulingTest {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         let expectedNextEligible = try Date.noon(year: 2026, month: 12, day: 3)
-        let reading = PromptHistoryReading.recorded(history: .tracking(interval: .monthly, nextEligible: nextEligible))
+        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let snoozed = reading.snoozed(declaring: .monthly, at: now, in: .testing)
         
-        #expect(PromptHistory.tracking(interval: .monthly, nextEligible: expectedNextEligible) == snoozed)
+        #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == snoozed)
     }
     
     
@@ -174,11 +204,11 @@ struct PromptSchedulingTest {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         let expectedNextEligible = try Date.noon(year: 2026, month: 11, day: 10)
-        let reading = PromptHistoryReading.recorded(history: .tracking(interval: .weekly, nextEligible: nextEligible))
+        let reading = PromptStateLookup.some(.success(.scheduled(interval: .weekly, nextEligible: nextEligible)))
         
         let snoozed = reading.snoozed(declaring: .yearly, at: now, in: .testing)
         
-        #expect(PromptHistory.tracking(interval: .weekly, nextEligible: expectedNextEligible) == snoozed)
+        #expect(PromptState.scheduled(interval: .weekly, nextEligible: expectedNextEligible) == snoozed)
     }
     
     
@@ -187,9 +217,19 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         let expectedNextEligible = try Date.noon(year: 2026, month: 12, day: 3)
         
-        let snoozed = PromptHistoryReading.neverChecked.snoozed(declaring: .monthly, at: now, in: .testing)
+        let snoozed = PromptStateLookup.none.snoozed(declaring: .monthly, at: now, in: .testing)
         
-        #expect(PromptHistory.tracking(interval: .monthly, nextEligible: expectedNextEligible) == snoozed)
+        #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == snoozed)
+    }
+    
+    
+    /// Asking for later can't schedule a prompt which is waiting on something else
+    @Test func snoozingAPendingPromptChangesNothing() throws {
+        let now = try Date.noon(year: 2026, month: 11, day: 3)
+        
+        let snoozed = PromptStateLookup.some(.success(.pending)).snoozed(declaring: .monthly, at: now, in: .testing)
+        
+        #expect(nil == snoozed)
     }
     
     
@@ -197,16 +237,16 @@ struct PromptSchedulingTest {
     @Test func snoozingARetiredPromptChangesNothing() throws {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         
-        let snoozed = PromptHistoryReading.recorded(history: .done).snoozed(declaring: .monthly, at: now, in: .testing)
+        let snoozed = PromptStateLookup.some(.success(.done)).snoozed(declaring: .monthly, at: now, in: .testing)
         
         #expect(nil == snoozed)
     }
     
     
-    /// A history which can't be read isn't overwritten by asking for later
+    /// A state which can't be read isn't overwritten by asking for later
     @Test func snoozingAnUnreadablePromptChangesNothing() throws {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
-        let reading = PromptHistoryReading.unreadable(cause: StubAction.StubError())
+        let reading = PromptStateLookup.some(.failure(StubAction.StubError()))
         
         let snoozed = reading.snoozed(declaring: .monthly, at: now, in: .testing)
         

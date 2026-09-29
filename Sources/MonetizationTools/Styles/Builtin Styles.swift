@@ -11,25 +11,28 @@ import SwiftUI
 
 // MARK: - Default
 
-/// The default prompt style: minimal, likely to fit into existing apps without issue
-public struct DefaultMonetizationPromptStyle: MonetizationPromptStyle {
+public extension MonetizationPrompt {
     
-    public init() {}
-    
-    
-    public func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            configuration.content
+    /// The default prompt style: minimal, likely to fit into existing apps without issue
+    struct DefaultStyle: Style {
+        
+        public init() {}
+        
+        
+        public func makeBody(configuration: Configuration) -> some View {
+            VStack(alignment: .leading, spacing: 8) {
+                configuration.content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(.background.secondary, in: .rect(cornerRadius: 12))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.background.secondary, in: .rect(cornerRadius: 12))
     }
 }
 
 
 
-public extension MonetizationPromptStyle where Self == DefaultMonetizationPromptStyle {
+public extension MonetizationPrompt.Style where Self == MonetizationPrompt.DefaultStyle {
     
     /// The default prompt style: minimal, likely to fit into existing apps without issue
     static var `default`: Self { .init() }
@@ -39,20 +42,23 @@ public extension MonetizationPromptStyle where Self == DefaultMonetizationPrompt
 
 // MARK: - Plain
 
-/// The non-style; applies nothing at all. This just displays the prompt's contents unchanged
-public struct PlainMonetizationPromptStyle: MonetizationPromptStyle {
+public extension MonetizationPrompt {
     
-    public init() {}
-    
-    
-    public func makeBody(configuration: Configuration) -> some View {
-        configuration.content
+    /// The non-style; applies nothing at all. This just displays the prompt's contents unchanged
+    struct PlainStyle: Style {
+        
+        public init() {}
+        
+        
+        public func makeBody(configuration: Configuration) -> some View {
+            configuration.content
+        }
     }
 }
 
 
 
-public extension MonetizationPromptStyle where Self == PlainMonetizationPromptStyle {
+public extension MonetizationPrompt.Style where Self == MonetizationPrompt.PlainStyle {
     
     /// The non-style; applies nothing at all. This just displays the prompt's contents unchanged
     static var plain: Self { .init() }

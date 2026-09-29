@@ -59,33 +59,33 @@ func withEphemeralDefaults(_ body: @MainActor (UserDefaults) async throws -> Voi
 
 
 
-extension PromptHistoryReading {
+extension PromptStateLookup {
     
     /// Whether nothing was stored
     var isNeverChecked: Bool {
         switch self {
-        case .neverChecked:
+        case .none:
             return true
             
-        case .recorded(history: _):
+        case .some(.success):
             return false
             
-        case .unreadable(cause: _):
+        case .some(.failure):
             return false
         }
     }
     
     
-    /// The history which was read, or `nil` if there wasn't a readable one
-    var recordedHistory: PromptHistory? {
+    /// The state which was read, or `nil` if there wasn't a readable one
+    var recordedState: PromptState? {
         switch self {
-        case .neverChecked:
+        case .none:
             return nil
             
-        case .recorded(history: let history):
-            return history
+        case .some(.success(let state)):
+            return state
             
-        case .unreadable(cause: _):
+        case .some(.failure):
             return nil
         }
     }
@@ -94,13 +94,13 @@ extension PromptHistoryReading {
     /// Whether something was stored which couldn't be read
     var isUnreadable: Bool {
         switch self {
-        case .neverChecked:
+        case .none:
             return false
             
-        case .recorded(history: _):
+        case .some(.success):
             return false
             
-        case .unreadable(cause: _):
+        case .some(.failure):
             return true
         }
     }
@@ -111,10 +111,10 @@ extension PromptHistoryReading {
 // MARK: - Actions
 
 /// A stand-in for a real action, which does whatever a test tells it to and counts how often it was asked
-struct StubAction: MonetizationPromptAction {
+struct StubAction: MonetizationPrompt.Action {
     
     /// What happened when this action ran, for a test to choose
-    let result: Result<MonetizationPromptActionOutcome, StubError>
+    let result: Result<MonetizationPrompt.ActionOutcome, StubError>
     
     /// Counts each time this action runs
     let counter: Counter
@@ -126,7 +126,7 @@ struct StubAction: MonetizationPromptAction {
     ///   - result:  What running the action does. Defaults to succeeding.
     ///   - counter: _optional_ - Counts runs. Defaults to a counter which nobody reads.
     @MainActor
-    init(_ result: Result<MonetizationPromptActionOutcome, StubError> = .success(.succeeded),
+    init(_ result: Result<MonetizationPrompt.ActionOutcome, StubError> = .success(.succeeded),
          counter: Counter = Counter()) {
         self.result = result
         self.counter = counter
@@ -134,8 +134,9 @@ struct StubAction: MonetizationPromptAction {
     
     
     @MainActor
-    func perform(id identifier: MonetizationPromptIdentifier,
-                 in environment: EnvironmentValues) async throws -> MonetizationPromptActionOutcome {
+    func perform(id identifier: MonetizationPrompt.Identifier,
+                 scope: MonetizationPrompt.Scope,
+                 in environment: EnvironmentValues) async throws -> Outcome {
         counter.count += 1
         await Task.yield()
         return try result.get()

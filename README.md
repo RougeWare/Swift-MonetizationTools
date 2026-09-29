@@ -37,7 +37,7 @@ struct MyView: View {
 
             MonetizationPrompt(for: .licensePurchase) { flow in
                 Text("Purchase a license?")
-                Button("Purchase now") { Task { try await flow.present() } }
+                Button("Purchase now") { flow.present() } // If you want to react to payment errors, `try await` this
                 Button("Later") { flow.snooze() }
                 Button("Never") { flow.decline() }
             }
@@ -79,8 +79,11 @@ appears. Only `snooze()`, `decline()`, or a completed purchase changes when (or 
 and stays on screen. Only `snooze()` and `decline()` change anything, because only those are things a person actually
 asked for.
 
-**Retiring a prompt costs nearly nothing to remember.** A declined or fulfilled prompt persists as `{"done":true}` and
-not one byte more. Someone who wanted none of this can't have their storage grow because of it.
+**Waiting on someone else hides it.** A purchase that needs approval, like Ask to Buy, hides the prompt and ignores its
+schedule until the purchase resolves. An approval retires the prompt, even if it arrives after the app was quit.
+
+**Retiring a prompt costs nearly nothing to remember.** A declined or fulfilled prompt persists as `{"state":"done"}`
+and not one byte more. Someone who wanted none of this can't have their storage grow because of it.
 
 
 ## Scope
@@ -107,33 +110,34 @@ rules [in this forum thread](https://developer.apple.com/forums/thread/758358).
 
 ## Styling
 
-The contents are always yours. A `MonetizationPromptStyle` decides everything around them, the way `ButtonStyle` does
+The contents are always yours. A `MonetizationPrompt.Style` decides everything around them, the way `ButtonStyle` does
 for a button.
 
 - `.default` — a rounded rectangle with a secondary background
 - `.plain` — nothing at all
 
-Write your own by conforming to `MonetizationPromptStyle` and implementing `makeBody(configuration:)`.
+Write your own by conforming to `MonetizationPrompt.Style` and implementing `makeBody(configuration:)`.
 
 
 ## Actions
 
-What happens when someone says yes is a `MonetizationPromptAction`. One ships with the package:
+What happens when someone says yes is a `MonetizationPrompt.Action`. One ships with the package:
 
 - `.storeKitPurchase` — presents the system purchase sheet. With no `productId:`, it uses the prompt's own identifier as
   the product ID, so a matching pair doesn't have to be typed twice.
 
-Write your own by conforming to `MonetizationPromptAction`. Nothing about the scheduling, storage, or presentation
+Write your own by conforming to `MonetizationPrompt.Action`. Nothing about the scheduling, storage, or presentation
 machinery needs to know what yours does. An action is handed the environment of the prompt showing it, so it can read
 `openURL`, `purchase`, and the like without any setup of yours.
 
 ```swift
-struct KoFiLinkAction: MonetizationPromptAction {
+struct KoFiLinkAction: MonetizationPrompt.Action {
     let url: URL
 
     @MainActor
-    func perform(id identifier: MonetizationPromptIdentifier,
-                 in environment: EnvironmentValues) async throws -> MonetizationPromptActionOutcome {
+    func perform(id identifier: MonetizationPrompt.Identifier,
+                 scope: MonetizationPrompt.Scope,
+                 in environment: EnvironmentValues) async throws -> Outcome {
         // Open the URL, then decide what that meant
         environment.openURL(url)
         return .succeeded
@@ -188,7 +192,7 @@ Depends on [SpecialString](https://github.com/RougeWare/Swift-Special-String) fo
 
 ## LLM transparency
 
-[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo.
+[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo, and wrote the vast majority of it. Nothing gets into production code without my careful review and explicit approval, no matter who or what wrote it. See [the PRs](https://github.com/RougeWare/Swift-MonetizationTools/pulls) for proof of that.
 
 A lot of it was written using LLMs, either directly writing it, or assisting contributors like myself.
 

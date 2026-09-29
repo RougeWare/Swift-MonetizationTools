@@ -11,26 +11,26 @@ import SimpleLogging
 
 
 
-/// Remembers each prompt's ``PromptHistory`` in a `UserDefaults` database.
+/// Serializes and persists each prompt's ``PromptState`` to disk, in a `UserDefaults` database.
 ///
 /// Storage is kept here so nothing else has to know how or where anything is remembered. The prompt and its flow say
 /// what happened; this decides what that means for storage. There's no setup step: whichever prompt first needs a store
 /// makes one, from its own scope.
 ///
 /// Every operation which can fail handles its own failure, by logging it and choosing the quiet outcome. A prompt which
-/// can't read or write its history stays out of the way rather than risk asking someone twice.
+/// can't read or write its state stays out of the way rather than risk asking someone twice.
 @MainActor
 internal struct PromptStore {
     
-    /// The database which holds every history this store knows about
+    /// The database which holds every state this store knows about
     private let defaults: UserDefaults
     
     
-    /// Makes a store which keeps histories in the given database.
+    /// Makes a store which keeps states in the given database.
     ///
     /// Tests use this with a throwaway database. Everything else goes through ``init(scope:)``.
     ///
-    /// - Parameter defaults: The database to keep histories in
+    /// - Parameter defaults: The database to keep states in
     init(defaults: UserDefaults) {
         self.defaults = defaults
     }
@@ -42,7 +42,7 @@ internal struct PromptStore {
     ///
     /// - Returns: The store, or `nil` when the scope is an App Group whose defaults can't be opened. This is a
     ///            misconfiguration, so it's also logged, and it fails an assertion in debug builds.
-    init?(scope: MonetizationPromptScope) {
+    init?(scope: MonetizationPrompt.Scope) {
         guard let defaults = scope.userDefaults else {
             assertionFailure("The defaults for \(scope) can't be opened, so its prompts will never show")
             log(error: "The defaults for \(scope) can't be opened, so its prompts will never show")
@@ -59,18 +59,18 @@ internal struct PromptStore {
 
 internal extension PromptStore {
     
-    /// The start of every key this store writes, which keeps prompt histories apart from everything else in the same
+    /// The start of every key this store writes, which keeps prompt states apart from everything else in the same
     /// database
     private static let keyPrefix = "MonetizationTools.prompt."
     
     
-    /// The key under which a prompt's history is kept.
+    /// The key under which a prompt's state is kept.
     ///
     /// This is a compatibility promise. Changing how it's built means everyone who ever declined a prompt is asked
     /// again, so it must never change.
     ///
     /// - Parameter id: Identifies the prompt
-    static func key(for id: MonetizationPromptIdentifier) -> String {
+    static func key(for id: MonetizationPrompt.Identifier) -> String {
         keyPrefix + id.withoutTypeSafety()
     }
 }
@@ -85,41 +85,41 @@ internal extension PromptStore {
     ///
     /// - Parameter id: Identifies the prompt
     ///
-    /// - Returns: What was found. Anything stored which isn't a readable history, of any type, is
-    ///            ``PromptHistoryReading/unreadable(cause:)`` and is logged.
-    func reading(for id: MonetizationPromptIdentifier) -> PromptHistoryReading {
+    /// - Returns: `nil` when nothing is stored. Anything stored which isn't a readable state, of any type, is a
+    ///            `.failure` and is logged.
+    func lookUpState(for id: MonetizationPrompt.Identifier) -> PromptStateLookup {
         switch defaults.object(forKey: Self.key(for: id)) {
         case .none:
-            return .neverChecked
+            return nil
             
         case .some(let stored as String):
             do {
-                return .recorded(history: try PromptHistory(jsonString: stored))
+                return .success(try PromptState(jsonString: stored))
             }
             catch {
-                log(error: error, "The history of the prompt \(id) can't be read, so it will never show")
-                return .unreadable(cause: error)
+                log(error: error, "The state of the prompt \(id) can't be read, so it will never show")
+                return .failure(error)
             }
             
         case .some:
-            log(error: "The history of the prompt \(id) isn't a string, so it will never show")
-            return .unreadable(cause: ReadingError.storedValueIsNotAString)
+            log(error: "The state of the prompt \(id) isn't a string, so it will never show")
+            return .failure(ReadingError.storedValueIsNotAString)
         }
     }
     
     
-    /// Stores a prompt's history, replacing whatever was stored before. If it can't be encoded, that's logged and
+    /// Stores a prompt's state, replacing whatever was stored before. If it can't be encoded, that's logged and
     /// nothing changes.
     ///
     /// - Parameters:
-    ///   - history: What to store
-    ///   - id:      Identifies the prompt
-    func remember(_ history: PromptHistory, for id: MonetizationPromptIdentifier) {
+    ///   - state: What to store
+    ///   - id:    Identifies the prompt
+    func persist(_ state: PromptState, for id: MonetizationPrompt.Identifier) {
         do {
-            defaults.set(try history.jsonString(), forKey: Self.key(for: id))
+            defaults.set(try state.jsonString(), forKey: Self.key(for: id))
         }
         catch {
-            log(error: error, "The history of the prompt \(id) can't be stored")
+            log(error: error, "The state of the prompt \(id) can't be stored")
         }
     }
 }
@@ -132,8 +132,9 @@ internal extension PromptStore {
     
     /// Checks whether a prompt is due, and remembers the check if it's the very first one.
     ///
-    /// This runs when a prompt's view appears. It never shows anything and it never changes a prompt's schedule, except
-    /// that the very first check of a prompt locks in its cadence.
+    /// Runs once each time SwiftUI inserts the prompt's view into the screen. It only decides whether the prompt is due;
+    /// it doesn't render anything. It never changes a prompt's schedule, except that the very first check of a prompt
+    /// locks in its cadence.
     ///
     /// - Parameters:
     ///   - descriptor: Describes the prompt being checked
@@ -145,11 +146,11 @@ internal extension PromptStore {
                at now: Date = .now,
                in calendar: Calendar = .current)
     -> Bool {
-        let result = reading(for: descriptor.identifier)
+        let result = lookUpState(for: descriptor.identifier)
             .check(declaring: descriptor.interval, at: now, in: calendar)
         
-        if let historyToRemember = result.historyToRemember {
-            remember(historyToRemember, for: descriptor.identifier)
+        if let stateToRemember = result.stateToRemember {
+            persist(stateToRemember, for: descriptor.identifier)
         }
         
         return result.isDue
@@ -165,31 +166,31 @@ internal extension PromptStore {
     func snooze(_ descriptor: MonetizationPrompt.Descriptor,
                 at now: Date = .now,
                 in calendar: Calendar = .current) {
-        let snoozedHistory = reading(for: descriptor.identifier)
+        let snoozedState = lookUpState(for: descriptor.identifier)
             .snoozed(declaring: descriptor.interval, at: now, in: calendar)
         
-        if let snoozedHistory {
-            remember(snoozedHistory, for: descriptor.identifier)
+        if let snoozedState {
+            persist(snoozedState, for: descriptor.identifier)
         }
     }
     
     
     /// Retires a prompt, so it never shows again. This is for a declined prompt and a fulfilled one, and it also
-    /// repairs a history which couldn't be read.
+    /// repairs a state which couldn't be read.
     ///
     /// - Parameter id: Identifies the prompt
-    func retire(_ id: MonetizationPromptIdentifier) {
-        remember(.done, for: id)
+    func retire(_ id: MonetizationPrompt.Identifier) {
+        persist(.done, for: id)
     }
     
     
     #if DEBUG
     /// Erases everything stored for a prompt, so its next check behaves like the first one after a fresh install.
     ///
-    /// This is for ``MonetizationPromptFlow/reset()``, and exists only in debug builds.
+    /// This is for ``MonetizationPrompt/Flow/reset()``, and exists only in debug builds.
     ///
     /// - Parameter id: Identifies the prompt
-    func forget(_ id: MonetizationPromptIdentifier) {
+    func reset(_ id: MonetizationPrompt.Identifier) {
         defaults.removeObject(forKey: Self.key(for: id))
     }
     #endif
@@ -201,7 +202,7 @@ internal extension PromptStore {
 
 private extension PromptStore {
     
-    /// Why a stored value couldn't be read as a history, when that isn't a decoding failure
+    /// Why a stored value couldn't be read as a state, when that isn't a decoding failure
     enum ReadingError: Error {
         
         /// Something is stored under the prompt's key, but it isn't a string

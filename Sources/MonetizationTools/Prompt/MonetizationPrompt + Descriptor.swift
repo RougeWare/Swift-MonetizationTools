@@ -25,12 +25,12 @@ public extension MonetizationPrompt {
     /// }
     /// ```
     ///
-    /// Declaring one inline at the call site works too, but a prompt shown from more than one screen should be declared
-    /// once so its cadence can't drift between copies.
+    /// A descriptor can be declared inline at the call site, or declared once elsewhere and reused. Use a shared
+    /// declaration for any prompt shown from more than one screen, so its cadence can't drift between copies.
     struct Descriptor: Sendable {
         
         /// Uniquely and permanently identifies this prompt
-        public let identifier: MonetizationPromptIdentifier
+        public let identifier: MonetizationPrompt.Identifier
         
         /// How long this prompt waits before its first appearance, and between every appearance after that.
         ///
@@ -42,10 +42,10 @@ public extension MonetizationPrompt {
         public let interval: PromptInterval
         
         /// Whether this prompt's history is kept for this app alone, or shared with the rest of an App Group
-        public let scope: MonetizationPromptScope
+        public let scope: MonetizationPrompt.Scope
         
         /// What happens when someone takes this prompt up on its offer
-        public let action: any MonetizationPromptAction
+        public let action: any MonetizationPrompt.Action
         
         
         /// - Parameters:
@@ -54,16 +54,16 @@ public extension MonetizationPrompt {
         ///   - interval:   _optional_ - How long to wait before the first appearance, and between appearances after
         ///                 that. Defaults to ``PromptInterval/monthly``.
         ///   - scope:      _optional_ - How far this prompt's memory reaches. Defaults to
-        ///                 ``MonetizationPromptScope/perApp``.
+        ///                 ``MonetizationPrompt/Scope/perApp``.
         ///   - action:     What happens when someone takes this prompt up on its offer. This runs when someone taps
-        ///                 into your own button and calls ``MonetizationPromptFlow/present()`` — before whatever the
+        ///                 into your own button and calls the flow's `present()` — before whatever the
         ///                 action itself shows. For ``StoreKitPurchaseAction``, that means before Apple's own
         ///                 payment sheet appears, since presenting that sheet is what this action does.
         public init(
-            _ identifier: MonetizationPromptIdentifier,
+            _ identifier: MonetizationPrompt.Identifier,
             atMost interval: PromptInterval = .monthly,
-            scope: MonetizationPromptScope = .perApp,
-            action: any MonetizationPromptAction
+            scope: MonetizationPrompt.Scope = .perApp,
+            action: any MonetizationPrompt.Action
         ) {
             self.identifier = identifier
             self.interval = interval

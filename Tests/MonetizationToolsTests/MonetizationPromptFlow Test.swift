@@ -17,7 +17,7 @@ import Testing
 struct MonetizationPromptFlowTest {
     
     /// The identifier every prompt in these tests uses
-    private static let identifier: MonetizationPromptIdentifier = "com.example.flow"
+    private static let identifier: MonetizationPrompt.Identifier = "com.example.flow"
     
     
     /// Stands in for the state which a prompt's view owns and its flow changes
@@ -35,8 +35,8 @@ struct MonetizationPromptFlowTest {
     /// Makes a flow which acts on the given state and store, and runs the given action
     private func flow(running action: StubAction,
                        store: PromptStore,
-                       state: ViewState) -> MonetizationPromptFlow {
-        MonetizationPromptFlow(
+                       state: ViewState) -> MonetizationPrompt.Flow {
+        MonetizationPrompt.Flow(
             descriptor: MonetizationPrompt.Descriptor(Self.identifier, atMost: .monthly, action: action),
             store: store,
             environment: EnvironmentValues(),
@@ -55,7 +55,7 @@ struct MonetizationPromptFlowTest {
             try await flow(running: StubAction(.success(.succeeded)), store: store, state: state).present()
             
             #expect(false == state.isShowing)
-            #expect(PromptHistory.done == store.reading(for: Self.identifier).recordedHistory)
+            #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
         }
     }
     
@@ -69,7 +69,41 @@ struct MonetizationPromptFlowTest {
             try await flow(running: StubAction(.success(.abandoned)), store: store, state: state).present()
             
             #expect(state.isShowing)
-            #expect(store.reading(for: Self.identifier).isNeverChecked)
+            #expect(store.lookUpState(for: Self.identifier).isNeverChecked)
+        }
+    }
+    
+    
+    /// Waiting on someone else hides the prompt and records that it's waiting, without retiring it
+    @Test func pendingHidesThePromptAndRecordsIt() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            let state = ViewState()
+            
+            try await flow(running: StubAction(.success(.pending)), store: store, state: state).present()
+            
+            #expect(false == state.isShowing)
+            #expect(PromptState.pending == store.lookUpState(for: Self.identifier).recordedState)
+        }
+    }
+    
+    
+    /// The version without `try` or `await` does the same work as the throwing one
+    @Test func presentingWithoutWaitingDoesTheSameWork() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            let state = ViewState()
+            let counter = StubAction.Counter()
+            let fireAndForgetFlow = flow(running: StubAction(.success(.succeeded), counter: counter), store: store, state: state)
+            
+            let presentWithoutWaiting: @MainActor () -> Void = fireAndForgetFlow.present
+            presentWithoutWaiting()
+            while 0 == counter.count || state.isPresenting {
+                await Task.yield()
+            }
+            
+            #expect(false == state.isShowing)
+            #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
         }
     }
     
@@ -87,7 +121,7 @@ struct MonetizationPromptFlowTest {
             
             #expect(state.isShowing)
             #expect(false == state.isPresenting)
-            #expect(store.reading(for: Self.identifier).isNeverChecked)
+            #expect(store.lookUpState(for: Self.identifier).isNeverChecked)
         }
     }
     
@@ -116,7 +150,7 @@ struct MonetizationPromptFlowTest {
             let counter = StubAction.Counter()
             let doubleTappedFlow = flow(running: StubAction(.success(.succeeded), counter: counter), store: store, state: state)
             
-            async let first: Void = doubleTappedFlow.present()
+            async let first: Void = try await doubleTappedFlow.present()
             try await doubleTappedFlow.present()
             try await first
             
@@ -135,7 +169,7 @@ struct MonetizationPromptFlowTest {
             
             #expect(false == state.isShowing)
             
-            guard case .tracking(interval: let interval, nextEligible: _) = try #require(store.reading(for: Self.identifier).recordedHistory) else {
+            guard case .scheduled(interval: let interval, nextEligible: _) = try #require(store.lookUpState(for: Self.identifier).recordedState) else {
                 Issue.record("Snoozing should leave the prompt tracked, not retired")
                 return
             }
@@ -153,7 +187,7 @@ struct MonetizationPromptFlowTest {
             flow(running: StubAction(), store: store, state: state).decline()
             
             #expect(false == state.isShowing)
-            #expect(PromptHistory.done == store.reading(for: Self.identifier).recordedHistory)
+            #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
         }
     }
     
@@ -169,7 +203,7 @@ struct MonetizationPromptFlowTest {
             flow(running: StubAction(), store: store, state: state).reset()
             
             #expect(state.isShowing)
-            #expect(store.reading(for: Self.identifier).isNeverChecked)
+            #expect(store.lookUpState(for: Self.identifier).isNeverChecked)
         }
     }
     #endif
