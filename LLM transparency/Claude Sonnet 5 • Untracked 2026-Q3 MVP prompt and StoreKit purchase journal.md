@@ -1197,3 +1197,884 @@ been compiled. Ky's build is the only verification.
    this pass, so I left it.
 3. Should Sonnet do the doc-style sweep Ky asked for in the review (blunt technical notes, throughout, including the
    README)? The plan above covered the doc comments it changed, not a full sweep, so I didn't do one.
+
+
+
+## 2026-10-01: Plan: the package asks the action what happened to a pending purchase (no code written)
+
+**Model:** Claude Sonnet 5 (planning and every doc comment below)
+**Director:** Ky
+
+This entry plans a rework of how a pending purchase gets resolved. Ky reviews it first. Opus implements it only after
+Ky approves. Nothing in `Sources/` or `Tests/` has changed.
+
+The baseline is the code as Opus left it on 2026-09-26 (`MonetizationTools_feature_MVP_2026-09-26_1455.zip`). I haven't
+seen changes made since then. Where this entry says "currently," it means that state. Opus should check the real files.
+
+This entry stands alone. Every term is defined where it first appears.
+
+
+### Why the 2026-09-26 design changes
+
+On 2026-09-26, `.pending` worked like this. When an action's `perform` returned `.pending`, the package stored
+`PromptState.pending` and hid the prompt. For StoreKit, a background task (`PendingPurchaseListener`) watched
+`Transaction.updates`. It used a stored list (`PendingPurchaseIndex`) of which prompt was waiting on which product, and
+it retired the prompt when an approval arrived.
+
+Review since then found these problems:
+
+1. Only the StoreKit listener could resolve a pending prompt. A custom action that returns `.pending` (for example one
+   waiting on a Ko-fi webhook) had no way to report a result, so its prompt could never retire or come back.
+2. Nothing could resolve a pending prompt as abandoned.
+3. The listener needed a global background task, a stored index, and a `scope` parameter on `perform` that existed only
+   to feed that index. It also had a race: the flow's `.pending` write could overwrite the listener's `.done`.
+4. If the app crashed after StoreKit reported a purchase and before the package recorded it, the prompt could be asked
+   again.
+
+The new design in one paragraph: the package asks the action. Each time a prompt whose stored state is pending appears,
+the package calls a new method, `checkPending(id:)`, on the prompt's action, and acts on the answer. Before the package
+does anything it can't undo, it stores what it is about to do, so a crash always leaves a state that says what happened.
+The listener, the index, and the `scope` parameter are deleted.
+
+
+### Terms
+
+- **Attempt**: one time a person taps a prompt's accept button, from the moment `perform` starts until the result is
+  recorded.
+- **Check**: one call to the action's `checkPending`.
+- **Spacing**: the minimum time between two checks for the same prompt. It's kept in memory only.
+- **Give-up time**: the moment after which a check that still answers `.pending` is treated as `.abandoned`.
+- **Locked-in interval**: the `PromptInterval` stored with a prompt at its first check. It never changes afterward.
+
+
+### Behavior, step by step
+
+**A. When the person taps accept (`flow.present()`, either overload)**
+
+1. Return without doing anything if this view is already presenting, or if the in-memory limiter says an attempt or a
+   check for the same prompt is running (see "In-memory limiter").
+2. Read the stored state. If it's `.scheduled`, or if nothing is stored, store
+   `.pending(interval:since:)`. The interval is the locked-in one, or the declared one if nothing is stored. `since` is
+   the current moment. This happens before `perform` runs. Any other stored state (`.pending`, `.resolving`, `.done`,
+   unreadable) is left as it is.
+3. Call `perform`.
+4. Act on the outcome:
+   - `.succeeded`: do "B. Recording a success". The prompt hides.
+   - `.pending`: nothing more to store, since step 2 already stored it. The prompt stays on screen, and its content is
+     replaced by the pending status message (see "F. Status message"). One check starts right away, in a separate task
+     that the caller doesn't wait for.
+   - `.abandoned`: store `.scheduled(interval:nextEligible:)` with `nextEligible` set to the current moment, so the
+     prompt is due again. The prompt stays on screen unchanged, which is what the person sees today when they back out.
+   - `perform` throws: store the same as for `.abandoned`, then pass the error to the caller of the throwing
+     `present()`, or log it for the non-throwing one.
+
+Why step 2 comes first: if the app dies while the purchase sheet is up, or right after StoreKit reports the purchase,
+the stored state already says pending. The next check can then find the purchase.
+
+**B. Recording a success (after `.succeeded` from `perform` or from a check)**
+
+1. Store `.resolving(interval:since:)`, using the fields of the stored `.pending`. Skip this step if the state is
+   already `.resolving`.
+2. Call the action's new `acknowledgeSuccess(id:)`. StoreKit's action finishes the transaction here.
+3. Store `.done`.
+4. Hide the prompt. If the pending status message is on screen, replace its text with the completed status message
+   instead (see "F. Status message").
+
+No step ever overwrites a stored `.done`. If the app dies after step 1, the next appearance finds `.resolving`, repeats
+steps 2 and 3, and never calls `checkPending`, because the success was already established. This is why
+`acknowledgeSuccess` has to tolerate being called twice for the same offer.
+
+**C. When a prompt's view appears (`onAppear`)**
+
+`PromptStore.check` reads the stored state and returns one of four decisions:
+
+- `show` and `hide`: the same as today.
+- `checkPending` (stored `.pending`): the prompt stays hidden, and a check starts in a separate task (see D).
+- `finishResolving` (stored `.resolving`): the prompt stays hidden, and steps 2 and 3 of B run in a separate task.
+
+The status message never shows on a later appearance. A pending prompt is hidden on every appearance after the one
+where it went pending.
+
+**D. A check**
+
+1. Ask the limiter. If an attempt or check for this prompt is running, or the last check ended less than the spacing
+   ago, stop and do nothing.
+2. Call `action.checkPending(id:)`. This call is not on the main actor.
+3. Read the stored state again, then act on the result. If the stored state is no longer `.pending`, ignore the result.
+   - `.succeeded`: do B.
+   - `.abandoned`: store `.scheduled(interval:nextEligible:)` with `nextEligible` one interval after now. Nothing
+     changes on screen.
+   - `.pending`: if now is at or after the give-up time, do the same as for `.abandoned`. Otherwise do nothing.
+4. Tell the limiter the check ended, and when.
+
+The give-up happens only after a check at or after the give-up time still answered `.pending`. That's the "one last
+check" before giving up.
+
+**E. Give-up time**
+
+```
+give-up time = since + clamp(action.maxTimeToCheckPendingTransactions(whenPromptAppears: interval), 0, span - spacing)
+span         = (the date one interval after `since`) - since
+```
+
+`span` is measured on the calendar, so a month counts as the real length of that month. The result is never negative.
+
+- Default for any action: a quarter of the interval. Monthly: about 7.5 days.
+- StoreKit overrides it with a fixed 48 hours. The shortest interval is a week, so the clamp never changes it.
+
+My reading of "clamp to `0` through 1-check-before-1-interval" is the formula above: the upper limit is one full interval
+minus one spacing. Ky should correct me if that's not what was meant.
+
+Worked example, monthly prompt, StoreKit action, give-up 48 hours. Times are approximate.
+
+- Day 0, 10:00. The person taps. Stored: `pending(monthly, since: day 0 10:00)`. `perform` returns `.pending`. The status
+  message shows. One check runs, finds nothing, and returns `.currentStateUnknown`. Nothing changes.
+- Day 1. A parent approves on their own device.
+- Day 2, 09:00 (before the give-up time, day 2 10:00). The person opens the screen. The decision is `checkPending`. The
+  check finds the approved transaction in `Transaction.unfinished` and returns `.succeeded`. The package stores
+  `resolving`, `acknowledgeSuccess` finishes the transaction, and the package stores `done`. The prompt is retired.
+
+Ways it misses that path:
+
+- **A consumable was finished by the developer's own code first.** The check finds nothing on day 2 09:00. Nothing
+  happens, because it's before the give-up time. On day 3 09:00 the check finds nothing again, now after the give-up time,
+  so the package stores `scheduled(monthly, nextEligible: day 3 09:00 + 1 month)`. The prompt is due again around day 33,
+  though the person paid on day 1.
+- **A crash after `resolving` was stored.** The next appearance finds `.resolving`, calls `acknowledgeSuccess` again (it
+  finds nothing left to finish), and stores `done`. No re-ask.
+- **A crash after StoreKit reported the purchase and before `resolving` was stored.** The state is `.pending`. The next
+  check finds the unfinished transaction, returns `.succeeded`, and B runs.
+- **A crash while the purchase sheet was open.** No purchase happened. The state is `.pending`, checks find nothing, and
+  after the give-up time the prompt is scheduled one interval later. Cost: the person is asked again about 2 days plus
+  one interval later, instead of on the next visit.
+- **The action can't tell** (for example, its server is unreachable). It returns `.currentStateUnknown`, which is the
+  same as finding nothing.
+- **An approval arrives after the give-up.** The stored state is `.scheduled` again, so nothing checks. The person is
+  asked again later. The approved transaction stays unfinished in StoreKit.
+
+For a custom action that doesn't override `maxTimeToCheckPendingTransactions`: a monthly prompt gives up after about
+7.5 days, and is due again one month after the check that gave up, so around day 37.5 or later.
+
+**F. Status message (what the person sees)**
+
+- The package shows the status message with `style.makeStatusBody(text:)`, which returns `Text`. The package doesn't
+  add a container around it. The style decides the look through `Text`'s own modifiers.
+- There are two messages. Pending: "Thank you. Your purchase request has been sent and is awaiting approval." Completed:
+  "Thank you. Your purchase is complete." (My wording for the completed one. Ky hasn't approved it.)
+- Height lock: the first time a status message renders in an appearance, the view measures its height with
+  `GeometryReader` and stores it. Any later status message in that same appearance is laid out with
+  `.frame(height: <stored height>)` and clipped. It never grows, because growing would move what's below it. The stored
+  height is cleared on the next appearance.
+- `.abandoned` found while the pending message is on screen changes nothing visible. The pending message stays until the
+  person leaves the screen.
+- `.succeeded` found while the pending message is on screen swaps its text for the completed message, in the locked
+  height.
+- The change from the prompt's normal content to the pending message is not height-locked, because the person just
+  acted. Only the swap from pending to completed is.
+
+**G. In-memory limiter**
+
+A new internal type, `PendingCheckLimiter`, lives on the main actor and holds two things per prompt: whether an attempt
+or check is running, and when the last check ended. It's in memory only, so a relaunch starts with no spacing and the
+first check after launch runs right away. The spacing is an internal constant, 5 minutes to start. Attempts (`perform`)
+count as running but don't start spacing, so the check right after `.pending` is allowed.
+
+The key for a prompt is its scope plus its identifier, so the same identifier in two scopes doesn't collide.
+
+
+### Protocol, outcome, and style changes
+
+`MonetizationPrompt.Action` changes:
+
+- `perform(id:in:)`: the `scope` parameter is removed (it was only for the deleted index).
+- New `checkPending(id:) async -> Outcome`. It doesn't throw. A default implementation returns `.currentStateUnknown` and
+  logs a warning.
+- New `acknowledgeSuccess(id:) async`. A default implementation does nothing. **This method is my addition, needed to
+  make the agreed `.resolving` sequence possible.** The action has no access to storage, so it can't store
+  `.resolving` between finding a transaction and finishing it. Splitting "finish" into its own method lets the package
+  store `.resolving` first. It also lets the direct purchase path (`perform` returning `.succeeded`) use the same
+  crash-safe order. Ky should review it.
+- New `maxTimeToCheckPendingTransactions(whenPromptAppears:) -> TimeInterval`, Ky's name. Its default returns a quarter of
+  the interval, counted from the current date. The signature has no `since`, so for months this is approximate by under a
+  day. The give-up time itself uses the exact span from `since`.
+
+`MonetizationPrompt.ActionOutcome` gets `static var currentStateUnknown: Self { .pending }`. It's an alias, not a new
+case, so a distinct case can replace it later without touching code that returns it.
+
+`MonetizationPrompt.Style` gets `makeStatusBody(text: LocalizedStringResource) -> Text`, with a default implementation
+`Text(text)`. `MonetizationPrompt.AnyStyle` forwards it. **The parameter is `LocalizedStringResource`, not the
+`LocalizedStringKey` Ky first described.** A `LocalizedStringKey` carries no bundle, so `Text(key)` inside a developer's
+own style would look in the developer's bundle and never find this package's translations. A `LocalizedStringResource`
+carries its bundle. It's available on iOS 16 and macOS 13 and later, below this package's minimums. Ky should review
+this change.
+
+
+### Localization
+
+- `Package.swift`: add `defaultLocalization: "en"` to the package and `resources: [.process("Resources")]` to the library
+  target. A target needs at least one resource before SwiftPM generates `Bundle.module`.
+- New `Sources/MonetizationTools/Resources/Localizable.xcstrings` with two English strings, each with a translator
+  comment. Ky adds the translations later.
+- An internal `LocalizedStringResource.BundleDescription.module` (`.atURL(Bundle.module.bundleURL)`) and two internal
+  resources, `pendingStatus` and `completedStatus`, that use it.
+- A translation only appears if the developer's app also lists that language as supported. The README says so once
+  translations exist.
+
+
+### Deleted or reverted
+
+- Delete `StoreKitPurchaseAction + PendingPurchase.swift` (`PendingPurchase`, `PendingPurchaseIndex`,
+  `PendingPurchaseListener`) and `PendingPurchase Test.swift`.
+- `MonetizationPrompt + Scope.swift`: remove the `Codable` conformance and its doc paragraph. Only the index used it.
+- `StoreKitPurchaseAction.init`: remove `PendingPurchaseListener.start()`.
+- `StoreKitPurchaseAction.outcome(of:)`: remove the `identifier`, `scope`, `productId`, and `index` parameters. It's no
+  longer `@MainActor async`, and it no longer finishes the transaction.
+- Every call site and example that passes `scope:` to `perform`, including the README example.
+- The earlier journal's "known gaps" about the flow's `.pending` write overwriting the listener's `.done`, and about the
+  static listener task, no longer apply.
+
+
+### Stored shapes
+
+```
+{"state":"scheduled","interval":"monthly","nextEligible":"2026-12-20T12:00:00Z"}   unchanged
+{"state":"pending","interval":"monthly","since":"2026-09-30T12:34:00Z"}            changed: was {"state":"pending"}
+{"state":"resolving","interval":"monthly","since":"2026-09-30T12:34:00Z"}          new
+{"state":"done"}                                                                   unchanged
+```
+
+There's no migration. A device that already stored the earlier bare `{"state":"pending"}` reads it as unreadable, so
+that prompt never shows until `flow.reset()` or a reinstall. Only test devices can have this.
+
+
+### Doc comments: full text
+
+Doc comment and signature only. Bodies are Opus's.
+
+`MonetizationPrompt + Action.swift`
+
+```swift
+/// What a prompt does when a person accepts it, and how the prompt finds out later whether that worked.
+///
+/// A conforming type has two main jobs. `perform` starts the offer. `checkPending` reports the result of an offer which
+/// couldn't finish right away. `checkPending` is the more important one. After `perform` returns `.pending`, it's the only
+/// way this package learns what happened. A mistake in it decides whether people who paid are asked to pay again, and
+/// whether people who didn't pay are left alone. Getting it right is your responsibility, and nothing else in this
+/// package depends on your code as much. Read its documentation before you write one.
+///
+/// Put a button that calls the flow's `decline()` in your prompt's content. A person who already paid, and who sees
+/// the prompt again anyway, can use it to end the prompt for good.
+protocol Action: Sendable
+```
+
+```swift
+/// Starts the offer, for example by presenting a purchase sheet.
+///
+/// The package calls this when the person taps the prompt's accept button, after it has stored that an attempt is
+/// pending. Return what happened right now:
+/// - `.succeeded` if the person completed it.
+/// - `.abandoned` if they backed out.
+/// - `.pending` if it started, but something outside your control has to happen before it finishes. The package then
+///   asks `checkPending` for the result later.
+///
+/// - Parameters:
+///   - identifier:  Identifies the prompt this action belongs to
+///   - environment: The environment of the view showing the prompt. Use it for whatever only SwiftUI can do correctly
+///                  from here, such as `purchase` (which presents in the right window) or `openURL`.
+///
+/// - Returns: What happened
+/// - Throws: Anything which went wrong. The package treats it like `.abandoned`, and passes the error to whoever called
+///           `present()`, so they can show it.
+@MainActor
+func perform(id identifier: MonetizationPrompt.Identifier,
+             in environment: EnvironmentValues) async throws -> Outcome
+```
+
+```swift
+/// Reports what happened to an offer which `perform` left pending.
+///
+/// The package calls this when the prompt's view appears while the prompt's stored state is pending. Calls for the same
+/// prompt never overlap, and they are spaced apart. Nothing is on screen for the person to act on when this runs, so
+/// don't present any UI from here.
+///
+/// Return:
+/// - `.succeeded` if the person completed it.
+/// - `.abandoned` only if you know for certain that it did not and will not complete, because the payment system told you
+///   so.
+/// - `.currentStateUnknown` in every other case. That includes a request that failed, a server you couldn't reach, and
+///   anything else where you can't tell what happened.
+///
+/// Never return `.abandoned` because something went wrong. `.abandoned` makes the prompt available to show again. If the
+/// person's first attempt is still open, they would be asked to pay while it's still open. If you don't know, return
+/// `.currentStateUnknown`.
+///
+/// This method can't throw, so handle every failure inside it and report it as `.currentStateUnknown`.
+///
+/// If this keeps returning `.currentStateUnknown`, the package eventually stops waiting and treats the attempt as
+/// abandoned. How long it waits comes from `maxTimeToCheckPendingTransactions(whenPromptAppears:)`.
+///
+/// The default implementation returns `.currentStateUnknown` and logs a warning, because an action that can leave an
+/// offer pending but can't check on it can never learn the result.
+///
+/// - Parameter identifier: Identifies the prompt this action belongs to
+///
+/// - Returns: What happened
+func checkPending(id identifier: MonetizationPrompt.Identifier) async -> Outcome
+```
+
+```swift
+/// Tells the payment system that the package has recorded a success, so the action can do its last step.
+///
+/// The package calls this after every `.succeeded` outcome, from both `perform` and `checkPending`, once it has stored
+/// that the success is being recorded. StoreKit's action calls `transaction.finish()` here.
+///
+/// After a crash, the package calls this again for the same offer. Make it safe to call more than once, and make it do
+/// nothing when there's nothing left to do.
+///
+/// The default implementation does nothing.
+///
+/// - Parameter identifier: Identifies the prompt this action belongs to
+func acknowledgeSuccess(id identifier: MonetizationPrompt.Identifier) async
+```
+
+```swift
+/// How long after an attempt starts the package keeps asking `checkPending`, before it treats the attempt as abandoned.
+///
+/// The package limits the result to between zero and one interval minus the spacing between two checks, so waiting
+/// always ends before the prompt would otherwise be due again. The default is a fixed fraction of `interval`.
+///
+/// Don't promise this duration to anyone. It's an implementation detail and can change.
+///
+/// - Parameter interval: The interval the prompt locked in at its first check
+///
+/// - Returns: How long to keep checking, counted from when the attempt started
+func maxTimeToCheckPendingTransactions(whenPromptAppears interval: PromptInterval) -> TimeInterval
+```
+
+```swift
+/// What happened when a ``MonetizationPrompt/Action`` ran.
+enum ActionOutcome: Sendable, Hashable {
+
+    /// The person completed what the prompt offered. The package records it, calls `acknowledgeSuccess`, and retires the
+    /// prompt for good.
+    case succeeded
+
+    /// The offer started, but isn't finished, and something outside this package has to happen first, such as a parent
+    /// approving an Ask to Buy request. The prompt's content is replaced by a short status message. On later
+    /// appearances the prompt is hidden, and the package asks `checkPending` for the result. A success retires the
+    /// prompt. A failure, or the package giving up waiting, makes the prompt come back later.
+    case pending
+
+    /// The person didn't complete it. From `perform`, nothing changes and the prompt stays on screen. From
+    /// `checkPending`, the prompt comes back later.
+    case abandoned
+}
+
+extension ActionOutcome {
+
+    /// The same as `.pending`, named for the case where you can't tell what happened. Return this from `checkPending`
+    /// whenever you don't know. If the package later treats "unknown" differently from "pending," code which returns
+    /// this picks that up without changes.
+    static var currentStateUnknown: Self { get }
+}
+```
+
+`MonetizationPrompt + Style.swift`
+
+```swift
+/// Makes the short status message which the prompt shows in place of its content: when an attempt is pending, and when it
+/// completes.
+///
+/// This returns `Text`, so a style can change fonts and colors, and can't add buttons or run code. Use `text` as it's
+/// given; it's already localized.
+///
+/// The default implementation returns `Text(text)`.
+///
+/// - Parameter text: The message to show
+///
+/// - Returns: The message, styled
+@MainActor
+func makeStatusBody(text: LocalizedStringResource) -> Text
+```
+
+`StoreKitPurchaseAction.swift`
+
+```swift
+/// Presents Apple's purchase sheet for one in-app purchase, and reports what the person did with it.
+///
+/// You don't make one of these directly. Use ``MonetizationPrompt/Action/storeKitPurchase`` or
+/// ``MonetizationPrompt/Action/storeKitPurchase(productId:)`` as a prompt's action.
+///
+/// The purchase sheet is presented through the environment of the view which shows the prompt, so it appears in the right
+/// window, including on visionOS and in multi-window apps, with nothing for you to set up.
+///
+/// - A verified purchase is `.succeeded`. The transaction is finished in `acknowledgeSuccess`, after the package has
+///   stored the success.
+/// - A purchase waiting on someone else, such as Ask to Buy waiting for a parent, is `.pending`.
+/// - Cancelling is `.abandoned`.
+/// - A purchase which can't be verified throws the verification error, and isn't finished.
+///
+/// While a purchase is pending, `checkPending` looks for it in `Transaction.unfinished`, and for a verified entitlement in
+/// `Transaction.currentEntitlements`. If neither has it, it returns `.currentStateUnknown`. An Ask to Buy request which is
+/// approved after the app was quit is found the next time the prompt appears. This package doesn't listen to
+/// `Transaction.updates`.
+///
+/// If the product is a consumable, don't also offer it through your own StoreKit code. Your code can finish its
+/// transaction before this action looks for it, and the action then can't tell that the purchase happened. For a
+/// non-consumable this is handled, because ownership is checked too.
+public struct StoreKitPurchaseAction: MonetizationPrompt.Action
+```
+
+```swift
+/// Decides what a purchase result means for a prompt.
+///
+/// Separate from `perform` so it can be checked without the App Store.
+///
+/// - Parameter result: What StoreKit reported
+///
+/// - Returns: ``MonetizationPrompt/ActionOutcome/succeeded`` for a verified purchase, which isn't finished yet;
+///            `acknowledgeSuccess` finishes it. ``MonetizationPrompt/ActionOutcome/pending`` for Ask to Buy or any other
+///            deferred purchase. ``MonetizationPrompt/ActionOutcome/abandoned`` for a cancelled purchase.
+/// - Throws: The verification error, for a purchase which couldn't be verified
+static func outcome(of result: Product.PurchaseResult) throws -> MonetizationPrompt.ActionOutcome
+```
+
+```swift
+/// Looks for this prompt's product in `Transaction.unfinished`, then in `Transaction.currentEntitlements`. Returns
+/// `.succeeded` if either has a verified transaction for it. Otherwise returns `.currentStateUnknown`.
+public func checkPending(id identifier: MonetizationPrompt.Identifier) async -> Outcome
+
+/// Finishes every verified unfinished transaction for this prompt's product. Does nothing if there are none, so repeating
+/// it after a crash is safe.
+public func acknowledgeSuccess(id identifier: MonetizationPrompt.Identifier) async
+
+/// Gives up after a fixed time, whatever `interval` is, because Ask to Buy requests are known to expire within a day or
+/// so.
+public func maxTimeToCheckPendingTransactions(whenPromptAppears interval: PromptInterval) -> TimeInterval
+```
+
+Next to the constant that holds the 48 hours, a plain `//` comment for maintainers: "Double the roughly 24 hours that developers report for Ask to Buy requests to expire, in case Apple lengthens it."
+
+Doc for `storeKitPurchase(productId:)`, one added paragraph:
+
+```swift
+/// A product should always be offered under the same prompt identifier. Offering one product under two identifiers is a
+/// mistake in your code. This package doesn't detect it or work around it.
+```
+
+`PromptState.swift`
+
+```swift
+/// The stored state of one prompt: waiting to become due, waiting on an attempt's result, being recorded as a success, or
+/// retired for good. This is all that's ever stored for a prompt.
+///
+/// The stored form is JSON tagged with a `"state"` field naming which of these four it is, so the four are mutually
+/// exclusive: nothing stored can claim to be two of them at once.
+internal enum PromptState: Sendable, Hashable {
+
+    // `.scheduled` is unchanged.
+
+    /// An attempt started, and its result isn't known yet. The prompt stays hidden, and its schedule is ignored, while
+    /// the package asks the action for the result. `interval` is the locked-in interval, kept so the prompt can be
+    /// scheduled again if the attempt is abandoned. `since` is when the attempt started. The give-up time is counted
+    /// from it.
+    ///
+    /// Stored as `{"state":"pending","interval":"<case name>","since":"<ISO 8601 date>"}`, for example
+    /// `{"state":"pending","interval":"monthly","since":"2026-09-30T12:34:00Z"}`.
+    ///
+    /// - Parameters:
+    ///   - interval: The locked-in interval
+    ///   - since:    When the attempt started
+    case pending(interval: PromptInterval, since: Date)
+
+    /// An attempt succeeded, and the package is in the middle of recording that. It's stored before the action's
+    /// `acknowledgeSuccess` runs, and replaced by `.done` after. If the app dies in between, the next appearance repeats
+    /// `acknowledgeSuccess` and stores `.done`.
+    ///
+    /// Stored as `{"state":"resolving","interval":"<case name>","since":"<ISO 8601 date>"}`, for example
+    /// `{"state":"resolving","interval":"monthly","since":"2026-09-30T12:34:00Z"}`.
+    ///
+    /// - Parameters:
+    ///   - interval: The locked-in interval
+    ///   - since:    When the attempt started
+    case resolving(interval: PromptInterval, since: Date)
+
+    // `.done` is unchanged.
+}
+```
+
+The block comment above the `Codable` extension gets two more example lines, for `pending` and `resolving`. The `Kind` enum
+inside the extension gets `pending` and `resolving` cases. The `//` warning above `encode(to:)` stays.
+
+`PromptState.swift`, new decision type and scheduling functions
+
+```swift
+/// What a prompt's view should do when it appears.
+internal enum PromptDecision: Sendable, Hashable {
+
+    /// The prompt is due. Show its content.
+    case show
+
+    /// The prompt isn't due, is retired, or can't be read. Show nothing.
+    case hide
+
+    /// An attempt is pending. Show nothing, and ask the action for the result.
+    case checkPending
+
+    /// A success is being recorded. Show nothing, and finish recording it.
+    case finishResolving
+}
+```
+
+```swift
+/// Decides what a prompt's view does when it appears, and whether this check needs to be remembered.
+///
+/// The very first check of a prompt is never due. It's remembered, which locks in the interval the prompt declared, and
+/// the prompt waits that long before its first appearance. After that, a scheduled prompt shows once its `nextEligible`
+/// has arrived. A pending prompt never shows, and reports that its result is needed. A resolving prompt never shows, and
+/// reports that its recording needs to finish. A retired or unreadable prompt never shows.
+///
+/// - Parameters:
+///   - declaredInterval: The interval the prompt's descriptor declares. Only used on the very first check; afterward the
+///                       stored, locked-in interval governs.
+///   - now:              The moment being checked
+///   - calendar:         _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
+///
+/// - Returns: What to do, and the state to remember, only on the very first check
+func check(declaring declaredInterval: PromptInterval,
+           at now: Date,
+           in calendar: Calendar = .current)
+-> (decision: PromptDecision, stateToRemember: PromptState?)
+```
+
+```swift
+/// The state to store just before an attempt starts, or `nil` when nothing should be stored.
+///
+/// A scheduled prompt becomes pending, keeping its locked-in interval. A prompt with nothing stored becomes pending with
+/// the declared interval; that only happens when the debug override showed the prompt. Every other state is left alone,
+/// so a retired prompt is never brought back.
+///
+/// - Parameters:
+///   - declaredInterval: The interval the prompt's descriptor declares. Only used if nothing is stored.
+///   - now:              The moment the attempt starts
+///
+/// - Returns: The state to store, or `nil`
+func startingAttempt(declaring declaredInterval: PromptInterval, at now: Date) -> PromptState?
+
+/// The state to store when an attempt ends with nothing recorded, for example because the person cancelled. The prompt
+/// becomes due at `now`. `nil` unless the stored state is pending.
+///
+/// - Parameter now: The moment the attempt ended
+///
+/// - Returns: The state to store, or `nil`
+func cancellingAttempt(at now: Date) -> PromptState?
+
+/// The state to store when an attempt's success is about to be recorded. `nil` unless the stored state is pending.
+///
+/// - Returns: The state to store, or `nil`
+func recordingSuccess() -> PromptState?
+
+/// The state to store when the package learns an attempt was abandoned, or gives up waiting. The prompt is scheduled
+/// again, one interval after `now`, using the locked-in interval. `nil` unless the stored state is pending.
+///
+/// - Parameters:
+///   - now:      The moment the package learned it, or gave up
+///   - calendar: _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
+///
+/// - Returns: The state to store, or `nil`
+func givingUp(at now: Date, in calendar: Calendar = .current) -> PromptState?
+```
+
+`PromptInterval` extension, in a new file or an existing one that isn't `PromptInterval.swift`
+
+```swift
+/// When the package stops waiting for an attempt's result.
+///
+/// Counted from `since`. `maxDuration` is limited to between zero and the time from `since` to one interval later, minus
+/// `spacing`. A calendar month counts as its real length.
+///
+/// - Parameters:
+///   - since:       When the attempt started
+///   - maxDuration: How long the action wants to keep checking
+///   - spacing:     The minimum time between two checks
+///   - calendar:    _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
+///
+/// - Returns: The give-up time
+func giveUpDate(since: Date, maxDuration: TimeInterval, spacing: TimeInterval, in calendar: Calendar = .current) -> Date
+
+/// A quarter of this interval, counted from `reference`. This is the default for
+/// `maxTimeToCheckPendingTransactions(whenPromptAppears:)`.
+///
+/// - Parameters:
+///   - reference: The date to count from
+///   - calendar:  _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
+///
+/// - Returns: A quarter of the interval, in seconds
+func quarterDuration(from reference: Date, in calendar: Calendar = .current) -> TimeInterval
+```
+
+`PromptStore.swift`
+
+```swift
+/// Reads a prompt's stored state, asks `transition` what to store, and stores it if `transition` returned a state.
+///
+/// The state is read when this runs, not earlier, so a result which arrives late is applied to what's stored now.
+///
+/// - Parameters:
+///   - id:         Identifies the prompt
+///   - transition: Given what's stored, returns the state to store, or `nil` to store nothing
+///
+/// - Returns: The state which was stored, or `nil` if nothing was
+@discardableResult
+func update(_ id: MonetizationPrompt.Identifier,
+            using transition: (PromptStateLookup) -> PromptState?) -> PromptState?
+```
+
+The doc of `check(_:at:in:)` changes to say it returns a `PromptDecision`, and that it never changes a prompt's state except the
+first-check write.
+
+`PendingCheckLimiter.swift` (new)
+
+```swift
+/// Allows one attempt or check at a time for each prompt, and spaces checks apart. It lives in memory only, so a relaunch
+/// starts with no spacing.
+@MainActor
+internal final class PendingCheckLimiter {
+
+    /// The shared limiter
+    static let shared: PendingCheckLimiter
+
+    /// The minimum time between the end of one check and the start of the next, for one prompt
+    static let spacing: TimeInterval
+
+    /// The key for a prompt: its scope and its identifier.
+    ///
+    /// - Parameters:
+    ///   - identifier: Identifies the prompt
+    ///   - scope:      The prompt's scope
+    static func key(for identifier: MonetizationPrompt.Identifier, scope: MonetizationPrompt.Scope) -> String
+
+    /// Tries to start an attempt or a check for the prompt with this key.
+    ///
+    /// - Parameters:
+    ///   - key:     The prompt's key
+    ///   - now:     The moment it would start
+    ///   - isCheck: `true` for a check, which also has to wait out the spacing; `false` for an attempt
+    ///
+    /// - Returns: `true` if it may run. `false` if one is already running, or, for a check, the last check ended too
+    ///            recently.
+    func begin(_ key: String, at now: Date, isCheck: Bool) -> Bool
+
+    /// Marks the running attempt or check for this key as ended. A check starts the spacing from `now`; an attempt doesn't.
+    ///
+    /// - Parameters:
+    ///   - key:     The prompt's key
+    ///   - now:     The moment it ended
+    ///   - isCheck: `true` if it was a check
+    func end(_ key: String, at now: Date, isCheck: Bool)
+
+    /// Forgets everything about this key. The debug `reset()` uses it, so test loops aren't delayed by the spacing.
+    ///
+    /// - Parameter key: The prompt's key
+    func forget(_ key: String)
+}
+```
+
+`MonetizationPrompt + Flow.swift`
+
+Replace the `present()` bullets (throwing overload), keeping the rest of that doc:
+
+```swift
+/// - If they complete it, the prompt goes away and never shows again.
+/// - If it's still waiting on something else, like a parent's approval, the prompt's content is replaced by a short status
+///   message. On later appearances the prompt is hidden, and the package keeps asking the action for the result. A
+///   success retires the prompt. A failure, or the package giving up waiting, makes it come back later.
+/// - If they back out, nothing changes and the prompt stays on screen.
+/// - If it throws, nothing changes and the prompt stays on screen. Show the error if you like; what it is depends on the
+///   prompt's action.
+///
+/// Calling this while a previous call, or a check for the same prompt, is still running does nothing, so a double tap can't
+/// start two purchases.
+```
+
+```swift
+/// Asks the action for the result of a pending attempt, and records what it says. Does nothing if an attempt or a check for
+/// this prompt is running, or the last check was too recent.
+func checkPending() async
+
+/// Finishes recording a success which was interrupted: calls the action's `acknowledgeSuccess`, then stores `.done`.
+func finishResolving() async
+```
+
+`reset()` also calls `PendingCheckLimiter.shared.forget` for its prompt. Its doc gains one sentence: "It also clears the
+spacing between checks for this prompt."
+
+`MonetizationPrompt + Identifier.swift`, one paragraph added to the identifier's doc, and a one-line pointer in
+`Descriptor`'s `identifier` doc ("One product per identifier. See ``MonetizationPrompt/Identifier``."):
+
+```swift
+/// Use one identifier for one offer. If two prompts offer the same product, give them the same identifier. Two identifiers
+/// for one product is a mistake in your code, and this package doesn't detect it or work around it.
+///
+/// You can use one identifier for more than one `MonetizationPrompt` view, for example the same prompt on two different
+/// screens. They share one stored state. If more than one of them is on screen at the same time and the person acts on
+/// one, what the others show isn't defined until they next appear.
+```
+
+Localization resources (internal)
+
+```swift
+extension LocalizedStringResource.BundleDescription {
+
+    /// This package's own bundle, for looking up its translations
+    static let module: LocalizedStringResource.BundleDescription
+}
+
+extension LocalizedStringResource {
+
+    /// Shown in place of a prompt after the person asked to buy something which needs approval first
+    static var pendingStatus: LocalizedStringResource
+
+    /// Shown in place of a pending status message once the purchase completes
+    static var completedStatus: LocalizedStringResource
+}
+```
+
+Strings in `Localizable.xcstrings`:
+
+| Key | English | Translator comment |
+|---|---|---|
+| `status.pending` | Thank you. Your purchase request has been sent and is awaiting approval. | Shown in place of a prompt after the person asked to buy something which needs approval first, such as a parent approving an Ask to Buy request. |
+| `status.completed` | Thank you. Your purchase is complete. | Shown in place of the previous message once the purchase is complete. Keep it no longer than the previous message. |
+
+
+### README changes
+
+Replace the paragraph that begins "**Waiting on someone else hides it.**" with:
+
+> **Waiting on someone else.** Some purchases need something to happen before they finish, like a parent approving an Ask
+> to Buy request. The prompt's content is replaced by a short message saying so. On later appearances the prompt is
+> hidden, and the package keeps asking the action for the result. A success retires the prompt for good. If the result is
+> that it didn't happen, or the package stops waiting, the prompt comes back later.
+
+Add a section "Writing your own action":
+
+> Conform to `MonetizationPrompt.Action`. Two methods matter. `perform` starts the offer. `checkPending` reports the
+> result of any offer that `perform` left `.pending`.
+>
+> `checkPending` is yours to get right. After `perform` returns `.pending`, it's the only way this package learns what
+> happened. Return `.succeeded` when you know the person completed it. Return `.abandoned` only when you know for
+> certain that it won't complete. In every other case, including a failed request or an unreachable server, return
+> `.currentStateUnknown`. Returning `.abandoned` by mistake brings the prompt back for someone whose first attempt may
+> still be open.
+>
+> Put a button that calls `flow.decline()` in your prompt's content. Someone who already paid and sees the prompt again
+> can use it to end the prompt.
+
+The existing `KoFiLinkAction` example changes. `perform` calls `environment.openURL(url)` and returns `.pending`, without
+a `scope` parameter. It gains a `checkPending(id:)` that has a comment saying to ask your own server whether Ko-fi's webhook
+reported a payment, to return `.succeeded` if it did, and to return `.currentStateUnknown` if it didn't or if the question
+couldn't be asked.
+
+Add under the StoreKit action: "Use one product for one prompt identifier. If the product is a consumable, don't also offer
+it through your own StoreKit code." Add the one-identifier-for-more-than-one-view note from the identifier's doc.
+
+The README doesn't state how long anything takes: not the wait, the give-up, or the spacing.
+
+
+### Tests
+
+- `PromptState Test.swift`: JSON for `pending` and `resolving`, both directions. Add the bare `{"state":"pending"}` and
+  `pending` without `since` or `interval` to the damaged forms. Replace the existing "stored as exactly
+  `{"state":"pending"}`" test.
+- Scheduling tests: `check` returns the right decision for each of the four stored states, nothing stored, and unreadable.
+  `startingAttempt`, `cancellingAttempt`, `recordingSuccess`, and `givingUp` for every state (each one returns `nil` for the
+  states it must not change). `giveUpDate`: the default quarter, a result below 0, a result above the limit, StoreKit's
+  48 hours for weekly and for yearly. `quarterDuration` with fixed dates.
+- `PromptStore Test.swift`: `update` reads at call time and stores only when `transition` returns a state.
+- A new limiter test file: one running per key; spacing after a check; no spacing after an attempt; different keys are
+  independent; `forget` clears both.
+- Flow tests, with `StubAction` extended so it can return a chosen `checkPending` result, count `acknowledgeSuccess` calls,
+  and record the order of events:
+  - The stored state is `.pending` while `perform` runs.
+  - `.succeeded` stores `resolving`, then calls `acknowledgeSuccess`, then stores `done`, in that order.
+  - `.abandoned` and a throw both put the prompt back to due now, and the prompt stays showing.
+  - `.pending` keeps the prompt showing with the pending status, and starts one check.
+  - A check: `.succeeded` retires; `.abandoned` schedules one interval later; `.pending` before the give-up time changes
+    nothing; `.pending` after the give-up time schedules one interval later.
+  - `.resolving` on appearance calls `acknowledgeSuccess` and stores `done`, and doesn't call `checkPending`.
+  - A result for a prompt that is no longer pending is ignored.
+  - Nothing overwrites `.done`.
+  - A check doesn't run while an attempt for the same prompt is running, and the reverse.
+  - The default `checkPending` returns `.currentStateUnknown`. The default `acknowledgeSuccess` does nothing.
+- `StoreKitPurchaseAction Test.swift`: `outcome(of:)` for `.pending` and `.userCancelled`, without an index. The
+  override of `maxTimeToCheckPendingTransactions` returns 48 hours for every interval. Transactions themselves can't be
+  built in unit tests, so `checkPending` and `acknowledgeSuccess` need manual tests.
+- Delete `PendingPurchase Test.swift`.
+
+
+### Order of work for Opus
+
+Docs first, as always. Write the doc comments above into the declarations, then the bodies.
+
+1. `Package.swift`, the resources folder, and the localization helpers.
+2. `Action`, `ActionOutcome`, `Style`, and `AnyStyle`.
+3. `PromptState`, `PromptDecision`, the scheduling functions, the `PromptInterval` helpers, `PromptStore.update`, and their tests.
+4. `PendingCheckLimiter` and its tests.
+5. `StoreKitPurchaseAction`, with the deletions.
+6. `Flow` and `MonetizationPrompt`'s view changes, and the flow tests.
+7. README and docs.
+8. A journal entry for the implementation, listing every departure from this plan, and every piece of doc text written
+   that this plan has none for, for Sonnet to review.
+
+
+### Decisions I made while drafting
+
+Ky can veto any of these.
+
+1. `acknowledgeSuccess(id:)` exists, and every success goes through it, including the direct purchase path.
+2. `makeStatusBody` takes `LocalizedStringResource`, not `LocalizedStringKey`.
+3. One check starts right after `perform` returns `.pending`. Without it, the pending-to-completed swap can't happen in
+   the same appearance, because no check would be running.
+4. The change from the prompt's content to the pending message isn't height-locked.
+5. The completed message wording: "Thank you. Your purchase is complete."
+6. The default `maxTimeToCheckPendingTransactions` counts from the current date, so it's approximate for months.
+7. The spacing is 5 minutes, internal.
+8. `flow.reset()` clears the limiter's record for its prompt.
+9. The first write of an attempt happens only from `.scheduled` or nothing stored. `.done` is never overwritten, and
+   `acknowledgeSuccess` still runs after every `.succeeded`, so a transaction isn't left unfinished.
+10. No migration for the old bare `{"state":"pending"}`.
+11. `checkPending` logs a warning in its default implementation. It runs on every appearance, so a prompt whose action
+    never implemented it logs on each one.
+
+
+### Questions for Ky
+
+1. Is my reading of the clamp (zero through one interval minus one spacing) what you meant?
+2. Should returning to the foreground also start a check while the status message is on screen? Someone who pays in
+   Safari and comes back sees the pending message until they leave the screen. The plan says no, for v1.
+
+
+### Not in this plan
+
+- The permanent donate button.
+- `Transaction.all` and the `SKIncludeConsumableInAppPurchaseHistory` Info.plist key, which was the pinned item. `since` is
+  stored for give-up timing, and it would also allow filtering by purchase date, but `checkPending(id:)` doesn't receive
+  it, so it isn't used.
+- A second `makeCompletedBody`. The same `makeStatusBody` is called with a different message.
+- Anything about the List and Form layout experiments. Ky is testing those separately.
+
+
+### Unverified
+
+1. Nested protocols in `public extension MonetizationPrompt` gaining new methods with default implementations.
+2. `LocalizedStringResource("status.pending", bundle: .atURL(Bundle.module.bundleURL))` rendering through
+   `Text(resource)` in a developer's own style. The pattern appears in third-party write-ups and the API is available
+   from iOS 16. It hasn't been compiled here.
+3. Iterating `StoreKit.Transaction.unfinished` and `StoreKit.Transaction.currentEntitlements` from a non-main-actor
+   `async` method.
+4. `GeometryReader` height locking inside `List` and `Form`.
+5. A `@MainActor` class with a `static let shared` under Swift 6.
+6. Whether finishing an already finished transaction is harmless. Developers commonly call `finish()` repeatedly, but I
+   found no explicit statement from Apple.
+7. Everything still open from earlier entries.
