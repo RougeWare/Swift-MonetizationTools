@@ -1,0 +1,60 @@
+{
+  "originHash" : "0e8b108b919c3dd5b3e26cb5d274015812fea55fc8a562ab7f7d8ea8805034cd",
+  "pins" : [
+    {
+      "identity" : "swift-function-tools",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-Function-Tools.git",
+      "state" : {
+        "revision" : "a854f4ed89b7e404019b5a09d24e067acc15432d",
+        "version" : "1.2.4"
+      }
+    },
+    {
+      "identity" : "swift-lazy-containers",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-Lazy-Containers.git",
+      "state" : {
+        "revision" : "360a35c98992fc53739e884fb0c48e988710fa92",
+        "version" : "4.1.0"
+      }
+    },
+    {
+      "identity" : "swift-optional-tools",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-Optional-Tools.git",
+      "state" : {
+        "revision" : "b02158c4563570293cccb9dbe606f066b1b69bf2",
+        "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "swift-serializationtools",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-SerializationTools.git",
+      "state" : {
+        "revision" : "4d151e1513b04da2ddc9fe464352e4070f7d992f",
+        "version" : "1.1.1"
+      }
+    },
+    {
+      "identity" : "swift-simple-logging",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-Simple-Logging.git",
+      "state" : {
+        "revision" : "efdee028f383b0f3c39646a76e16bdd30693f53b",
+        "version" : "0.5.2"
+      }
+    },
+    {
+      "identity" : "swift-special-string",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RougeWare/Swift-Special-String.git",
+      "state" : {
+        "revision" : "7a82d5b07b72aed848b028d3e8bf6d9591ec108a",
+        "version" : "1.2.0"
+      }
+    }
+  ],
+  "version" : 3
+}
