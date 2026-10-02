@@ -149,7 +149,7 @@ private extension MonetizationPrompt.Flow {
     
     /// The one implementation behind both versions of `present()`
     func performPresent() async throws {
-        if isPresenting.wrappedValue {
+        guard !isPresenting.wrappedValue else {
             return
         }
         
