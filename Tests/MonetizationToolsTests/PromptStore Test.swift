@@ -48,9 +48,9 @@ struct PromptStoreTest {
             let now = try Date.noon(year: 2026, month: 9, day: 20)
             let expectedNextEligible = try Date.noon(year: 2026, month: 10, day: 20)
             
-            let isDue = store.check(descriptor(), at: now, in: .testing)
+            let decision = store.check(descriptor(), at: now, in: .testing)
             
-            #expect(false == isDue)
+            #expect(PromptDecision.hide == decision)
             #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == store.lookUpState(for: "com.example.test").recordedState)
         }
     }
@@ -65,8 +65,8 @@ struct PromptStoreTest {
             let dueDate = try Date.noon(year: 2026, month: 10, day: 20)
             let later = try Date.noon(year: 2026, month: 12, day: 25)
             
-            #expect(store.check(descriptor(), at: dueDate, in: .testing))
-            #expect(store.check(descriptor(), at: later, in: .testing))
+            #expect(PromptDecision.show == store.check(descriptor(), at: dueDate, in: .testing))
+            #expect(PromptDecision.show == store.check(descriptor(), at: later, in: .testing))
         }
     }
     
@@ -80,8 +80,8 @@ struct PromptStoreTest {
             let snoozedAt = try Date.noon(year: 2026, month: 10, day: 25)
             store.snooze(descriptor(), at: snoozedAt, in: .testing)
             
-            #expect(false == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 24), in: .testing))
-            #expect(store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 25), in: .testing))
+            #expect(PromptDecision.hide == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 24), in: .testing))
+            #expect(PromptDecision.show == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 25), in: .testing))
         }
     }
     
@@ -110,21 +110,47 @@ struct PromptStoreTest {
             
             #expect("{\"state\":\"done\"}" == defaults.string(forKey: PromptStore.key(for: "com.example.test")))
             let noon21260101 = try Date.noon(year: 2126, month: 1, day: 1)
-            #expect(false == store.check(descriptor(), at: noon21260101, in: .testing))
+            #expect(PromptDecision.hide == store.check(descriptor(), at: noon21260101, in: .testing))
         }
     }
     
     
-    /// A pending prompt stays hidden, even long after its schedule would have made it due
+    /// A pending prompt stays hidden, even long after its schedule would have made it due, and asks for its result
     @Test func pendingPromptIsNeverDue() async throws {
         try await withEphemeralDefaults { defaults in
             let store = PromptStore(defaults: defaults)
             _ = store.check(descriptor(), at: try Date.noon(year: 2026, month: 9, day: 20), in: .testing)
             
-            store.persist(.pending, for: "com.example.test")
+            store.persist(.pending(interval: .monthly, since: try Date.noon(year: 2026, month: 10, day: 20)), for: "com.example.test")
             
-            #expect("{\"state\":\"pending\"}" == defaults.string(forKey: PromptStore.key(for: "com.example.test")))
-            #expect(false == store.check(descriptor(), at: try Date.noon(year: 2126, month: 1, day: 1), in: .testing))
+            #expect(PromptDecision.checkPending == store.check(descriptor(), at: try Date.noon(year: 2126, month: 1, day: 1), in: .testing))
+        }
+    }
+    
+    
+    /// An update reads what's stored when it runs, and stores only what the transition returns
+    @Test func updateStoresOnlyWhatTheTransitionReturns() async throws {
+        try await withEphemeralDefaults { defaults in
+            let store = PromptStore(defaults: defaults)
+            store.retire("com.example.test")
+            
+            let unchanged = store.update("com.example.test") { _ in nil }
+            
+            #expect(nil == unchanged)
+            #expect(PromptState.done == store.lookUpState(for: "com.example.test").recordedState)
+            
+            let since = try Date.noon(year: 2026, month: 10, day: 1)
+            let changed = store.update("com.example.test") { lookup in
+                if PromptState.done == lookup.recordedState {
+                    return .pending(interval: .weekly, since: since)
+                }
+                else {
+                    return nil
+                }
+            }
+            
+            #expect(PromptState.pending(interval: .weekly, since: since) == changed)
+            #expect(PromptState.pending(interval: .weekly, since: since) == store.lookUpState(for: "com.example.test").recordedState)
         }
     }
     
@@ -149,7 +175,7 @@ struct PromptStoreTest {
             
             #expect(store.lookUpState(for: "com.example.test").isUnreadable)
             let noon21260101 = try Date.noon(year: 2126, month: 1, day: 1)
-            #expect(false == store.check(descriptor(), at: noon21260101, in: .testing))
+            #expect(PromptDecision.hide == store.check(descriptor(), at: noon21260101, in: .testing))
         }
     }
     
@@ -213,10 +239,10 @@ struct PromptStoreTest {
             _ = store.check(descriptor(atMost: .weekly), at: try Date.noon(year: 2026, month: 9, day: 20), in: .testing)
             
             store.reset("com.example.test")
-            let isDue = store.check(descriptor(atMost: .monthly), at: try Date.noon(year: 2026, month: 10, day: 1), in: .testing)
+            let decision = store.check(descriptor(atMost: .monthly), at: try Date.noon(year: 2026, month: 10, day: 1), in: .testing)
             
             let expectedNextEligible = try Date.noon(year: 2026, month: 11, day: 1)
-            #expect(false == isDue)
+            #expect(PromptDecision.hide == decision)
             #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == store.lookUpState(for: "com.example.test").recordedState)
         }
     }

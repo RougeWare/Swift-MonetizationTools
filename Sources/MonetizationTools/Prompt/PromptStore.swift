@@ -130,22 +130,22 @@ internal extension PromptStore {
 
 internal extension PromptStore {
     
-    /// Checks whether a prompt is due, and remembers the check if it's the very first one.
+    /// Decides what a prompt's view does when it appears, and remembers the check if it's the very first one.
     ///
-    /// Runs once each time SwiftUI inserts the prompt's view into the screen. It only decides whether the prompt is due;
-    /// it doesn't render anything. It never changes a prompt's schedule, except that the very first check of a prompt
-    /// locks in its cadence.
+    /// Runs once each time SwiftUI inserts the prompt's view into the screen. It only decides what the view does; it
+    /// doesn't render anything. It never changes a prompt's state, except that the very first check of a prompt locks in
+    /// its cadence.
     ///
     /// - Parameters:
     ///   - descriptor: Describes the prompt being checked
     ///   - now:        _optional_ - The moment of the check. Defaults to the current moment.
     ///   - calendar:   _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
     ///
-    /// - Returns: Whether the prompt is due to be shown
+    /// - Returns: What the prompt's view should do
     func check(_ descriptor: MonetizationPrompt.Descriptor,
                at now: Date = .now,
                in calendar: Calendar = .current)
-    -> Bool {
+    -> PromptDecision {
         let result = lookUpState(for: descriptor.identifier)
             .check(declaring: descriptor.interval, at: now, in: calendar)
         
@@ -153,7 +153,29 @@ internal extension PromptStore {
             persist(stateToRemember, for: descriptor.identifier)
         }
         
-        return result.isDue
+        return result.decision
+    }
+    
+    
+    /// Reads a prompt's stored state, asks `transition` what to store, and stores it if `transition` returned a state.
+    ///
+    /// The state is read when this runs, not earlier, so a result which arrives late is applied to what's stored now.
+    ///
+    /// - Parameters:
+    ///   - id:         Identifies the prompt
+    ///   - transition: Given what's stored, returns the state to store, or `nil` to store nothing
+    ///
+    /// - Returns: The state which was stored, or `nil` if nothing was
+    @discardableResult
+    func update(_ id: MonetizationPrompt.Identifier,
+                using transition: (PromptStateLookup) -> PromptState?)
+    -> PromptState? {
+        guard let newState = transition(lookUpState(for: id)) else {
+            return nil
+        }
+        
+        persist(newState, for: id)
+        return newState
     }
     
     

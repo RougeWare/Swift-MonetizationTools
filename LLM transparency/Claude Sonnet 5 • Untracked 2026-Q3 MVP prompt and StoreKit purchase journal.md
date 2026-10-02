@@ -2078,3 +2078,114 @@ Ky can veto any of these.
 6. Whether finishing an already finished transaction is harmless. Developers commonly call `finish()` repeatedly, but I
    found no explicit statement from Apple.
 7. Everything still open from earlier entries.
+
+
+## 2026-10-01: Implementing the pull-based pending plan
+
+**Model:** Claude Opus 5.5 (implementation)
+**Director:** Ky
+
+Ky approved the plan in the entry above and gave the go-ahead. Ky confirmed the clamp reading (zero through one interval
+minus one spacing), and said no to checking on return to the foreground for v1, flagged for later. Nothing here has been
+compiled. Ky's build is the only verification.
+
+Baseline: Ky's zip of 2026-10-01 19:42. It differed from the 2026-09-26 code only in one line of the flow
+(`guard !isPresenting.wrappedValue else {`, kept), Ky's rewritten README, and this journal.
+
+
+### What was done, as planned
+
+- `Action`: `perform(id:in:)` (no `scope`), `checkPending(id:)`, `acknowledgeSuccess(id:)`,
+  `maxTimeToCheckPendingTransactions(whenPromptAppears:)`, with defaults. `ActionOutcome.currentStateUnknown`.
+- `PromptState`: `.pending(interval:since:)` and `.resolving(interval:since:)`, tagged JSON. `PromptDecision`. The pure
+  transitions `startingAttempt`, `cancellingAttempt`, `recordingSuccess`, `givingUp`. `giveUpDate` and
+  `quarterDuration` on `PromptInterval`, placed in `PromptState.swift`.
+- `PromptStore.check` returns a `PromptDecision`. New `PromptStore.update(_:using:)`.
+- `PendingCheckLimiter`: one attempt or check per prompt, 5-minute spacing between checks, in memory.
+- `Flow`: the stored state is written as pending before `perform`; success is recorded as resolving, then acknowledged,
+  then done; a cancel or a throw puts the prompt back to due; `.pending` shows the status message and starts one check.
+  `checkPending()` and `finishResolving()` for appearances.
+- `MonetizationPrompt`: acts on the four decisions when it appears; shows the status message through
+  `style.makeStatusBody(text:)`, measuring the first one and locking later ones to that height.
+- `Style.makeStatusBody(text: LocalizedStringResource) -> Text`, default `Text(text)`, forwarded by `AnyStyle`.
+- Localization: `defaultLocalization: "en"`, a `Resources` folder, `Localizable.xcstrings` with the two English strings.
+- `StoreKitPurchaseAction`: `checkPending` reads `Transaction.unfinished` then `Transaction.currentEntitlements`;
+  `acknowledgeSuccess` finishes the product's unfinished transactions; a fixed 48-hour wait; `outcome(of:)` no longer
+  finishes anything.
+- Deleted: `StoreKitPurchaseAction + PendingPurchase.swift`, `PendingPurchase Test.swift`, `Scope`'s `Codable`, and the
+  listener start.
+- Doc comments from the plan are used as written.
+
+
+### Departures from the plan
+
+1. **`PromptStatusMessage`.** The plan described "the status message" but didn't name a type for it. It's an internal
+   enum with `pending` and `completed`, in `PromptStatusMessage.swift`, which also holds the localization helpers.
+2. **StoreKit `checkPending` skips revoked transactions** in `Transaction.unfinished`, so a refunded purchase isn't
+   reported as a success.
+3. **`finishResolving()` holds the limiter like an attempt**, without spacing.
+4. **A contradicting doc sentence was changed.** `storeKitPurchase(productId:)` said to use it "when several prompts
+   offer the same product." That contradicts the new one-product-one-identifier rule placed right below it. It now says
+   to use it when the App Store product ID isn't the identifier you want for the prompt.
+5. **README.** The plan's README text was written against the earlier README. Ky had rewritten it, so the plan's
+   content was fitted into Ky's structure: the custom-action paragraph and Ko-fi example in "Actions," the consumable
+   warning under `.storeKitPurchase`, and two "Nitty-gritty" bullets (the Ask to Buy bullet replaced, and a new
+   one-product-one-identifier bullet). Nothing else in Ky's prose was changed.
+
+
+### Doc text written here, with no text in the plan, for Sonnet to review
+
+- `PromptStatusMessage`, its two cases, and `text`.
+- `PendingCheckLimiter`'s `init`, `running`, and `lastCheckEnded`.
+- `Flow`'s `statusMessage` and `limiter` properties and init parameters; `limiterKey`, `attempt()`, `endAttempt(_:)`,
+  and `recordSuccess()`.
+- `MonetizationPrompt`'s `statusMessage` and `statusHeight` state, `statusView(for:)`, `handleAppearance()`, and the
+  updated `presentedContent`.
+- `AnyStyle.makeStatusBody(text:)`, and the one-line docs on the default implementations in `Action` and `Style`.
+- StoreKit's private `appStoreProductId(for:)`, and the replacement sentence in departure 4.
+- The README text in departure 5 that isn't the plan's.
+
+
+### For Ky: things in the README this change made inaccurate, left for Ky to word
+
+- "Errors and backing out don't affect the prompt" says this includes "the app crashes." A crash while the purchase
+  sheet is open now leaves the prompt pending, so it comes back later instead of staying where it is.
+- "Only `snooze()`, `decline()`, or a successful purchase … changes when (or whether) it shows next." A later
+  `.abandoned`, or giving up, also reschedules it.
+- Typos in Ky's text: "desscription's," "it's be first shown," "first shown 28th," "disappearss."
+
+
+### Known limits, unchanged by design
+
+- A consumable finished by the developer's own code before this package looks for it: the prompt waits until the give-up
+  time, then is scheduled one interval later.
+- An approval that arrives after the give-up time isn't noticed.
+- Someone who pays outside the app and returns sees the pending message until they leave the screen (no foreground
+  check in v1).
+- The debug `.isShowing` override can still show a pending prompt (the earlier open question).
+
+
+### Unverified
+
+1. `LocalizedStringResource(_:defaultValue:bundle:comment:)` with `.atURL(Bundle.module.bundleURL)`, rendered through
+   `Text(resource)`, and that `.xcstrings` is processed by SwiftPM with this manifest.
+2. A `static let module` added to `LocalizedStringResource.BundleDescription` not colliding with anything in newer SDKs.
+3. Iterating `StoreKit.Transaction.unfinished` and `.currentEntitlements` from a nonisolated `async` method.
+4. Isolated default arguments: `limiter: PendingCheckLimiter = PendingCheckLimiter()` in the `@MainActor` test helper.
+5. The `GeometryReader` measurement setting `@State` from `.onAppear`, and the locked frame inside `List` and `Form`.
+6. Test closures that capture and set a local `var` (`stateDuringPerform`), stored on a `@MainActor` class.
+7. Whether finishing an already finished transaction is harmless.
+8. Everything still open from earlier entries.
+
+
+### Manual tests for Ky's build
+
+- Ask to Buy in sandbox: tap, see the pending message; leave and return, the prompt is hidden; approve, return to the
+  screen, the prompt is retired.
+- Decline an Ask to Buy request: after 48 hours and one more visit, the prompt is scheduled one interval later.
+- Force-quit while the purchase sheet is open, relaunch: the prompt is hidden (pending), then behaves as above.
+- A consumable purchase where the app is killed right after the sheet reports success: on the next visit, the prompt is
+  retired and the transaction is finished.
+- The pending message, and its swap to the completed message, inside a `VStack`, a `List`, and a `Form`, including
+  whether anything below it moves.
+- The pending message appears in English from a custom `Style`, not as the raw key `status.pending`.

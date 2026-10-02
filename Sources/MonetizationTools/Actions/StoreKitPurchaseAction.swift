@@ -13,23 +13,30 @@ import SimpleLogging
 
 /// Presents Apple's purchase sheet for one in-app purchase, and reports what the person did with it.
 ///
-/// You don't make one of these directly. Use ``MonetizationPrompt/Action/storeKitPurchase`` (or
-/// ``MonetizationPrompt/Action/storeKitPurchase(productId:)``) as a prompt's action.
+/// You don't make one of these directly. Use ``MonetizationPrompt/Action/storeKitPurchase`` or
+/// ``MonetizationPrompt/Action/storeKitPurchase(productId:)`` as a prompt's action.
 ///
-/// The purchase sheet is presented through the environment of the view which shows the prompt, so it appears in the
-/// right window, including on visionOS and in multi-window apps, with nothing for you to set up.
+/// The purchase sheet is presented through the environment of the view which shows the prompt, so it appears in the right
+/// window, including on visionOS and in multi-window apps, with nothing for you to set up.
 ///
-/// - A finished purchase is ``MonetizationPrompt/ActionOutcome/succeeded``, so the prompt is retired.
-/// - A purchase waiting on someone else, like Ask to Buy waiting for a parent's approval, is
-///   ``MonetizationPrompt/ActionOutcome/pending``. The prompt is hidden and ignores its schedule until the purchase
-///   resolves.
-/// - Cancelling is ``MonetizationPrompt/ActionOutcome/abandoned``, so the prompt keeps its schedule and stays on screen.
-/// - Anything which goes wrong throws. That's a `StoreKitError`, a `Product.PurchaseError`, or the verification error
-///   for a purchase which couldn't be verified. The purchase isn't finished in that last case, and nothing is recorded.
+/// - A verified purchase is `.succeeded`. The transaction is finished in `acknowledgeSuccess`, after the package has
+///   stored the success.
+/// - A purchase waiting on someone else, such as Ask to Buy waiting for a parent, is `.pending`.
+/// - Cancelling is `.abandoned`.
+/// - A purchase which can't be verified throws the verification error, and isn't finished.
 ///
-/// A pending purchase which is approved later, even after the app was quit, retires its prompt once the approved
-/// purchase reaches the app. Nothing needs to be set up for this.
+/// While a purchase is pending, `checkPending` looks for it in `Transaction.unfinished`, and for a verified entitlement in
+/// `Transaction.currentEntitlements`. If neither has it, it returns `.currentStateUnknown`. An Ask to Buy request which is
+/// approved after the app was quit is found the next time the prompt appears. This package doesn't listen to
+/// `Transaction.updates`.
+///
+/// If the product is a consumable, don't also offer it through your own StoreKit code. Your code can finish its
+/// transaction before this action looks for it, and the action then can't tell that the purchase happened. For a
+/// non-consumable this is handled, because ownership is checked too.
 public struct StoreKitPurchaseAction: MonetizationPrompt.Action {
+    
+    // Double the roughly 24 hours that developers report for Ask to Buy requests to expire, in case Apple lengthens it.
+    private static let maxTimeToCheckPendingPurchases: TimeInterval = 48 * 60 * 60
     
     /// The product's identifier in App Store Connect. When this is `nil`, the prompt's own identifier is used, so a
     /// matching pair doesn't have to be typed twice.
@@ -41,7 +48,6 @@ public struct StoreKitPurchaseAction: MonetizationPrompt.Action {
     /// - Parameter productId: The product's identifier in App Store Connect, or `nil` to use the prompt's own identifier
     internal init(productId: String?) {
         self.productId = productId
-        PendingPurchaseListener.start()
     }
     
     
@@ -49,9 +55,8 @@ public struct StoreKitPurchaseAction: MonetizationPrompt.Action {
     /// result means for the prompt.
     @MainActor
     public func perform(id identifier: MonetizationPrompt.Identifier,
-                        scope: MonetizationPrompt.Scope,
                         in environment: EnvironmentValues) async throws -> Outcome {
-        let productId = self.productId ?? identifier.withoutTypeSafety()
+        let productId = appStoreProductId(for: identifier)
         
         guard let product = try await Product.products(for: [productId]).first else {
             log(error: "The App Store has no product with the identifier \(productId)")
@@ -59,7 +64,55 @@ public struct StoreKitPurchaseAction: MonetizationPrompt.Action {
         }
         
         let result = try await environment.purchase(product)
-        return try await Self.outcome(of: result, identifier: identifier, scope: scope, productId: productId)
+        return try Self.outcome(of: result)
+    }
+    
+    
+    /// Looks for this prompt's product in `Transaction.unfinished`, then in `Transaction.currentEntitlements`. Returns
+    /// `.succeeded` if either has a verified transaction for it. Otherwise returns `.currentStateUnknown`.
+    public func checkPending(id identifier: MonetizationPrompt.Identifier) async -> Outcome {
+        let productId = appStoreProductId(for: identifier)
+        
+        for await unfinished in StoreKit.Transaction.unfinished {
+            if case .verified(let transaction) = unfinished,
+               productId == transaction.productID,
+               nil == transaction.revocationDate
+            {
+                return .succeeded
+            }
+        }
+        
+        for await entitlement in StoreKit.Transaction.currentEntitlements {
+            if case .verified(let transaction) = entitlement,
+               productId == transaction.productID
+            {
+                return .succeeded
+            }
+        }
+        
+        return .currentStateUnknown
+    }
+    
+    
+    /// Finishes every verified unfinished transaction for this prompt's product. Does nothing if there are none, so
+    /// repeating it after a crash is safe.
+    public func acknowledgeSuccess(id identifier: MonetizationPrompt.Identifier) async {
+        let productId = appStoreProductId(for: identifier)
+        
+        for await unfinished in StoreKit.Transaction.unfinished {
+            if case .verified(let transaction) = unfinished,
+               productId == transaction.productID
+            {
+                await transaction.finish()
+            }
+        }
+    }
+    
+    
+    /// Gives up after a fixed time, whatever `interval` is, because Ask to Buy requests are known to expire within a day
+    /// or so.
+    public func maxTimeToCheckPendingTransactions(whenPromptAppears interval: PromptInterval) -> TimeInterval {
+        Self.maxTimeToCheckPendingPurchases
     }
 }
 
@@ -69,36 +122,21 @@ public struct StoreKitPurchaseAction: MonetizationPrompt.Action {
 
 internal extension StoreKitPurchaseAction {
     
-    /// Decides what a purchase result means for a prompt, and records anything this package needs to remember to make
-    /// sense of it later.
+    /// Decides what a purchase result means for a prompt.
     ///
-    /// Separate from ``perform(id:scope:in:)`` so it can be checked without the App Store.
+    /// Separate from `perform` so it can be checked without the App Store.
     ///
-    /// - Parameters:
-    ///   - result:     What StoreKit reported
-    ///   - identifier: The prompt this purchase belongs to
-    ///   - scope:      Where that prompt's stored state lives
-    ///   - productId:  The product identifier which was purchased
-    ///   - index:      _optional_ - Where a pending purchase is recorded. Tests use one backed by a throwaway database;
-    ///                 everything else uses the default.
+    /// - Parameter result: What StoreKit reported
     ///
-    /// - Returns: ``MonetizationPrompt/ActionOutcome/succeeded`` for a verified purchase, which is also finished.
-    ///            ``MonetizationPrompt/ActionOutcome/pending`` for Ask to Buy or any other deferred purchase, which is
-    ///            recorded in ``PendingPurchaseIndex`` so ``PendingPurchaseListener`` can find it later. Cancelled
-    ///            purchases are ``MonetizationPrompt/ActionOutcome/abandoned``.
+    /// - Returns: ``MonetizationPrompt/ActionOutcome/succeeded`` for a verified purchase, which isn't finished yet;
+    ///            `acknowledgeSuccess` finishes it. ``MonetizationPrompt/ActionOutcome/pending`` for Ask to Buy or any other
+    ///            deferred purchase. ``MonetizationPrompt/ActionOutcome/abandoned`` for a cancelled purchase.
     /// - Throws: The verification error, for a purchase which couldn't be verified
-    @MainActor
-    static func outcome(of result: Product.PurchaseResult,
-                        identifier: MonetizationPrompt.Identifier,
-                        scope: MonetizationPrompt.Scope,
-                        productId: String,
-                        index: PendingPurchaseIndex = PendingPurchaseIndex())
-    async throws -> MonetizationPrompt.ActionOutcome {
+    static func outcome(of result: Product.PurchaseResult) throws -> MonetizationPrompt.ActionOutcome {
         switch result {
         case .success(let verification):
             switch verification {
-            case .verified(let transaction):
-                await transaction.finish()
+            case .verified:
                 return .succeeded
                 
             case .unverified(_, let verificationError):
@@ -106,7 +144,6 @@ internal extension StoreKitPurchaseAction {
             }
             
         case .pending:
-            index.add(PendingPurchase(productId: productId, promptIdentifier: identifier, scope: scope))
             return .pending
             
         case .userCancelled:
@@ -116,6 +153,20 @@ internal extension StoreKitPurchaseAction {
             log(warning: "StoreKit reported a purchase result this package doesn't know, so it was treated as abandoned")
             return .abandoned
         }
+    }
+}
+
+
+
+// MARK: - Product identifiers
+
+private extension StoreKitPurchaseAction {
+    
+    /// The product's identifier in App Store Connect, for the prompt with the given identifier
+    ///
+    /// - Parameter identifier: Identifies the prompt this action belongs to
+    func appStoreProductId(for identifier: MonetizationPrompt.Identifier) -> String {
+        productId ?? identifier.withoutTypeSafety()
     }
 }
 
@@ -143,8 +194,10 @@ public extension MonetizationPrompt.Action where Self == StoreKitPurchaseAction 
     
     /// Presents Apple's purchase sheet for the given product.
     ///
-    /// Use this when the product's identifier in App Store Connect isn't the same as the prompt's identifier, such as
-    /// when several prompts offer the same product.
+    /// Use this when the product's identifier in App Store Connect isn't the identifier you want for the prompt.
+    ///
+    /// A product should always be offered under the same prompt identifier. Offering one product under two identifiers is
+    /// a mistake in your code. This package doesn't detect it or work around it.
     ///
     /// - Parameter productId: The product's identifier in App Store Connect
     static func storeKitPurchase(productId: String) -> Self {

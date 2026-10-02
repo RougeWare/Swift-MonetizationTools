@@ -7,6 +7,8 @@ import PackageDescription
 let package = Package(
     name: "MonetizationTools",
     
+    defaultLocalization: "en",
+    
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
@@ -34,6 +36,9 @@ let package = Package(
                 .product(name: "SpecialString", package: "Swift-Special-String"),
                 .product(name: "SerializationTools", package: "Swift-SerializationTools"),
                 .product(name: "SimpleLogging", package: "Swift-Simple-Logging"),
+            ],
+            resources: [
+                .process("Resources"),
             ]),
         
         .testTarget(

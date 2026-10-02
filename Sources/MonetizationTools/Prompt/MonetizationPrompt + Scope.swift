@@ -16,13 +16,10 @@ public extension MonetizationPrompt {
     /// Sharing across a family of apps means declining a prompt in one app declines it in all of them, so a suite can't
     /// collectively nag harder than any one of its members would.
     ///
-    /// Conforms to `Codable` so a deferred purchase can record which scope its prompt belongs to, for
-    /// ``PendingPurchaseListener`` to write into once it resolves.
-    ///
     /// On macOS, an app distributed outside the Mac App Store should name its group with its Team ID as the prefix (like
     /// `"ABCDE12345.org.example.apps"`) instead of `group.…`. Otherwise macOS 15 and later can show the person an alert
     /// saying the app "would like to access data from other apps", which this package can neither detect nor prevent.
-    enum Scope: Sendable, Hashable, Codable {
+    enum Scope: Sendable, Hashable {
         
         /// This prompt's history is kept for this app alone. Nothing needs to be set up for this.
         case perApp

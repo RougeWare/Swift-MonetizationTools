@@ -45,25 +45,37 @@ public extension MonetizationPrompt {
         /// prompt's view is, so this is what lets a double tap start only one purchase.
         private let isPresenting: Binding<Bool>
         
+        /// The status message shown in place of the prompt's content, or `nil` to show the content
+        private let statusMessage: Binding<PromptStatusMessage?>
+        
+        /// Keeps attempts and checks for this prompt to one at a time, and spaces checks apart
+        private let limiter: PendingCheckLimiter
+        
         
         /// Makes the flow for one prompt.
         ///
         /// - Parameters:
-        ///   - descriptor:   Describes the prompt this flow acts on
-        ///   - store:        Where this prompt's state is kept
-        ///   - environment:  The environment of the view which shows the prompt
-        ///   - isShowing:    Whether the prompt is on screen
-        ///   - isPresenting: Whether a presentation is currently running
+        ///   - descriptor:    Describes the prompt this flow acts on
+        ///   - store:         Where this prompt's state is kept
+        ///   - environment:   The environment of the view which shows the prompt
+        ///   - isShowing:     Whether the prompt is on screen
+        ///   - isPresenting:  Whether a presentation is currently running
+        ///   - statusMessage: The status message shown in place of the prompt's content, or `nil` to show the content
+        ///   - limiter:       Keeps attempts and checks for this prompt to one at a time, and spaces checks apart
         internal init(descriptor: MonetizationPrompt.Descriptor,
                       store: PromptStore?,
                       environment: EnvironmentValues,
                       isShowing: Binding<Bool>,
-                      isPresenting: Binding<Bool>) {
+                      isPresenting: Binding<Bool>,
+                      statusMessage: Binding<PromptStatusMessage?>,
+                      limiter: PendingCheckLimiter) {
             self.descriptor = descriptor
             self.store = store
             self.environment = environment
             self.isShowing = isShowing
             self.isPresenting = isPresenting
+            self.statusMessage = statusMessage
+            self.limiter = limiter
         }
     }
 }
@@ -81,13 +93,15 @@ public extension MonetizationPrompt.Flow {
     /// whatever it showed, or once whatever it's waiting on has been recorded.
     ///
     /// - If they complete it, the prompt goes away and never shows again.
-    /// - If it's still waiting on something else, like a parent's approval, the prompt goes away and stays away,
-    ///   ignoring its own schedule, until that's resolved elsewhere. This call doesn't retire it or bring it back.
+    /// - If it's still waiting on something else, like a parent's approval, the prompt's content is replaced by a short
+    ///   status message. On later appearances the prompt is hidden, and the package keeps asking the action for the
+    ///   result. A success retires the prompt. A failure, or the package giving up waiting, makes it come back later.
     /// - If they back out, nothing changes and the prompt stays on screen.
     /// - If it throws, nothing changes and the prompt stays on screen. Show the error if you like; what it is depends on
     ///   the prompt's action.
     ///
-    /// Calling this while a previous call is still running does nothing, so a double tap can't start two purchases.
+    /// Calling this while a previous call, or a check for the same prompt, is still running does nothing, so a double tap
+    /// can't start two purchases.
     func present() async throws {
         try await performPresent()
     }
@@ -128,7 +142,8 @@ public extension MonetizationPrompt.Flow {
     
     
     #if DEBUG
-    /// Erases this prompt's stored state, so its next check behaves like the first one after a fresh install.
+    /// Erases this prompt's stored state, so its next check behaves like the first one after a fresh install. It also
+    /// clears the spacing between checks for this prompt.
     ///
     /// It doesn't hide the prompt. Call it from a button, not directly in the prompt's content, since content is built
     /// again each time the view updates.
@@ -137,8 +152,74 @@ public extension MonetizationPrompt.Flow {
     /// release build by accident.
     func reset() {
         store?.reset(descriptor.identifier)
+        limiter.forget(limiterKey)
     }
     #endif
+}
+
+
+
+// MARK: - Pending attempts
+
+internal extension MonetizationPrompt.Flow {
+    
+    /// Asks the action for the result of a pending attempt, and records what it says. Does nothing if an attempt or a
+    /// check for this prompt is running, or the last check was too recent.
+    func checkPending() async {
+        let key = limiterKey
+        guard limiter.begin(key, at: .now, isCheck: true) else {
+            return
+        }
+        
+        defer { limiter.end(key, at: .now, isCheck: true) }
+        
+        let outcome = await descriptor.action.checkPending(id: descriptor.identifier)
+        
+        guard let store,
+              case .some(.success(.pending(interval: let interval, since: let since))) = store.lookUpState(for: descriptor.identifier)
+        else {
+            return
+        }
+        
+        switch outcome {
+        case .succeeded:
+            await recordSuccess()
+            
+        case .abandoned:
+            store.update(descriptor.identifier) { $0.givingUp(at: .now) }
+            
+        case .pending:
+            let giveUpDate = interval.giveUpDate(
+                since: since,
+                maxDuration: descriptor.action.maxTimeToCheckPendingTransactions(whenPromptAppears: interval),
+                spacing: PendingCheckLimiter.spacing
+            )
+            
+            if giveUpDate <= .now {
+                store.update(descriptor.identifier) { $0.givingUp(at: .now) }
+            }
+        }
+    }
+    
+    
+    /// Finishes recording a success which was interrupted: calls the action's `acknowledgeSuccess`, then stores `.done`.
+    func finishResolving() async {
+        let key = limiterKey
+        guard limiter.begin(key, at: .now, isCheck: false) else {
+            return
+        }
+        
+        defer { limiter.end(key, at: .now, isCheck: false) }
+        
+        guard let store,
+              case .some(.success(.resolving)) = store.lookUpState(for: descriptor.identifier)
+        else {
+            return
+        }
+        
+        await descriptor.action.acknowledgeSuccess(id: descriptor.identifier)
+        store.retire(descriptor.identifier)
+    }
 }
 
 
@@ -147,29 +228,96 @@ public extension MonetizationPrompt.Flow {
 
 private extension MonetizationPrompt.Flow {
     
+    /// This prompt's key in the limiter
+    var limiterKey: String {
+        PendingCheckLimiter.key(for: descriptor.identifier, scope: descriptor.scope)
+    }
+    
+    
     /// The one implementation behind both versions of `present()`
     func performPresent() async throws {
         guard !isPresenting.wrappedValue else {
             return
         }
         
-        isPresenting.wrappedValue = true
-        defer { isPresenting.wrappedValue = false }
+        let key = limiterKey
+        guard limiter.begin(key, at: .now, isCheck: false) else {
+            return
+        }
         
-        let outcome = try await descriptor.action.perform(id: descriptor.identifier,
-                                                          scope: descriptor.scope,
-                                                          in: environment)
+        isPresenting.wrappedValue = true
+        
+        let outcome: MonetizationPrompt.ActionOutcome
+        do {
+            outcome = try await attempt()
+        }
+        catch {
+            endAttempt(key)
+            throw error
+        }
+        
+        endAttempt(key)
+        
+        if MonetizationPrompt.ActionOutcome.pending == outcome {
+            Task {
+                await checkPending()
+            }
+        }
+    }
+    
+    
+    /// Runs one attempt: stores that it's pending, runs the action, and records what the action reported.
+    ///
+    /// - Returns: What the action reported
+    /// - Throws: Whatever the action threw, after putting the prompt back to due
+    func attempt() async throws -> MonetizationPrompt.ActionOutcome {
+        store?.update(descriptor.identifier) { $0.startingAttempt(declaring: descriptor.interval, at: .now) }
+        
+        let outcome: MonetizationPrompt.ActionOutcome
+        do {
+            outcome = try await descriptor.action.perform(id: descriptor.identifier, in: environment)
+        }
+        catch {
+            store?.update(descriptor.identifier) { $0.cancellingAttempt(at: .now) }
+            throw error
+        }
         
         switch outcome {
         case .succeeded:
-            retireAndHide()
+            await recordSuccess()
             
         case .pending:
-            store?.persist(.pending, for: descriptor.identifier)
-            isShowing.wrappedValue = false
+            statusMessage.wrappedValue = .pending
             
         case .abandoned:
-            break
+            store?.update(descriptor.identifier) { $0.cancellingAttempt(at: .now) }
+        }
+        
+        return outcome
+    }
+    
+    
+    /// Ends an attempt which ``performPresent()`` started
+    ///
+    /// - Parameter key: This prompt's key in the limiter
+    func endAttempt(_ key: String) {
+        isPresenting.wrappedValue = false
+        limiter.end(key, at: .now, isCheck: false)
+    }
+    
+    
+    /// Records a success: stores `.resolving`, calls the action's `acknowledgeSuccess`, stores `.done`, then hides the
+    /// prompt. If the pending status message is on screen, it shows the completed message instead of hiding.
+    func recordSuccess() async {
+        store?.update(descriptor.identifier) { $0.recordingSuccess() }
+        await descriptor.action.acknowledgeSuccess(id: descriptor.identifier)
+        store?.retire(descriptor.identifier)
+        
+        if PromptStatusMessage.pending == statusMessage.wrappedValue {
+            statusMessage.wrappedValue = .completed
+        }
+        else {
+            isShowing.wrappedValue = false
         }
     }
     

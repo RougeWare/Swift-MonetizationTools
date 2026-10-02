@@ -38,6 +38,21 @@ public extension MonetizationPrompt {
         @MainActor
         @ViewBuilder
         func makeBody(configuration: Configuration) -> Body
+        
+        
+        /// Makes the short status message which the prompt shows in place of its content: when an attempt is pending, and
+        /// when it completes.
+        ///
+        /// This returns `Text`, so a style can change fonts and colors, and can't add buttons or run code. Use `text` as
+        /// it's given; it's already localized.
+        ///
+        /// The default implementation returns `Text(text)`.
+        ///
+        /// - Parameter text: The message to show
+        ///
+        /// - Returns: The message, styled
+        @MainActor
+        func makeStatusBody(text: LocalizedStringResource) -> Text
     }
     
     
@@ -74,6 +89,19 @@ public extension MonetizationPrompt {
 
 
 
+// MARK: - Defaults
+
+public extension MonetizationPrompt.Style {
+    
+    /// Returns `Text(text)`, unstyled
+    @MainActor
+    func makeStatusBody(text: LocalizedStringResource) -> Text {
+        Text(text)
+    }
+}
+
+
+
 // MARK: - Applying a style
 
 public extension View {
@@ -103,6 +131,9 @@ internal extension MonetizationPrompt {
         /// The style's `makeBody`, with its result type hidden
         private let makeBodyOfWrappedStyle: @MainActor @Sendable (MonetizationPrompt.StyleConfiguration) -> AnyView
         
+        /// The style's `makeStatusBody`
+        private let makeStatusBodyOfWrappedStyle: @MainActor @Sendable (LocalizedStringResource) -> Text
+        
         
         /// Hides the type of the given style
         ///
@@ -110,6 +141,9 @@ internal extension MonetizationPrompt {
         init<WrappedStyle: MonetizationPrompt.Style>(_ style: WrappedStyle) {
             self.makeBodyOfWrappedStyle = { configuration in
                 AnyView(style.makeBody(configuration: configuration))
+            }
+            self.makeStatusBodyOfWrappedStyle = { text in
+                style.makeStatusBody(text: text)
             }
         }
         
@@ -120,6 +154,15 @@ internal extension MonetizationPrompt {
         @MainActor
         func makeBody(configuration: MonetizationPrompt.StyleConfiguration) -> AnyView {
             makeBodyOfWrappedStyle(configuration)
+        }
+        
+        
+        /// Makes a status message, using the wrapped style
+        ///
+        /// - Parameter text: The message to show
+        @MainActor
+        func makeStatusBody(text: LocalizedStringResource) -> Text {
+            makeStatusBodyOfWrappedStyle(text)
         }
     }
 }

@@ -20,5 +20,12 @@ public extension MonetizationPrompt {
     ///
     /// Reverse-DNS is the intended shape (`"com.example.licensePurchaseNotice"`), but nothing enforces that; the only real
     /// requirement is that it never changes once shipped, since it's the key under which this prompt's history is kept.
+    ///
+    /// Use one identifier for one offer. If two prompts offer the same product, give them the same identifier. Two
+    /// identifiers for one product is a mistake in your code, and this package doesn't detect it or work around it.
+    ///
+    /// You can use one identifier for more than one `MonetizationPrompt` view, for example the same prompt on two
+    /// different screens. They share one stored state. If more than one of them is on screen at the same time and the
+    /// person acts on one, what the others show isn't defined until they next appear.
     typealias Identifier = SpecialString<IdentifierSpecialType>
 }

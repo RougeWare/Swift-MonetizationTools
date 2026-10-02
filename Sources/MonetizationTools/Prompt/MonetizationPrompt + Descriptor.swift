@@ -29,7 +29,8 @@ public extension MonetizationPrompt {
     /// declaration for any prompt shown from more than one screen, so its cadence can't drift between copies.
     struct Descriptor: Sendable {
         
-        /// Uniquely and permanently identifies this prompt
+        /// Uniquely and permanently identifies this prompt. One product per identifier. See
+        /// ``MonetizationPrompt/Identifier``.
         public let identifier: MonetizationPrompt.Identifier
         
         /// How long this prompt waits before its first appearance, and between every appearance after that.

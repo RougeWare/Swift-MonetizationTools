@@ -56,6 +56,14 @@ public struct MonetizationPrompt: View {
     /// view is.
     @State private var isPresenting = false
     
+    /// The status message shown in place of the prompt's content, or `nil` to show the content. It's cleared each time
+    /// this view appears, so a status message only ever shows during the appearance where the attempt went pending.
+    @State private var statusMessage: PromptStatusMessage? = nil
+    
+    /// The height of the first status message shown during this appearance. Later status messages are laid out at this
+    /// height and clipped, so swapping one for another never moves anything around them.
+    @State private var statusHeight: CGFloat? = nil
+    
     /// The environment of this view, which the flow passes to the prompt's action
     @Environment(\.self) private var environment
     
@@ -111,17 +119,25 @@ public struct MonetizationPrompt: View {
             store: PromptStore(scope: descriptor.scope),
             environment: environment,
             isShowing: effectiveIsShowing,
-            isPresenting: $isPresenting
+            isPresenting: $isPresenting,
+            statusMessage: $statusMessage,
+            limiter: .shared
         )
     }
     
     
-    /// The prompt's content in its style while it's showing, or nothing while it isn't
+    /// The prompt's content in its style while it's showing, its status message in place of that content while there is
+    /// one, or nothing while it isn't showing
     private var presentedContent: AnyView {
         if effectiveIsShowing.wrappedValue {
-            return style.makeBody(configuration: .init(
-                content: .init(wrapping: content(flow))
-            ))
+            if let statusMessage {
+                return AnyView(statusView(for: statusMessage))
+            }
+            else {
+                return style.makeBody(configuration: .init(
+                    content: .init(wrapping: content(flow))
+                ))
+            }
         }
         else {
             return AnyView(EmptyView())
@@ -129,10 +145,66 @@ public struct MonetizationPrompt: View {
     }
     
     
+    /// A status message, made by the style.
+    ///
+    /// The first one shown during an appearance is measured. Every one after it is laid out at that measured height and
+    /// clipped, so it never grows and moves what's below it.
+    ///
+    /// - Parameter message: The message to show
+    @ViewBuilder
+    private func statusView(for message: PromptStatusMessage) -> some View {
+        let text = style.makeStatusBody(text: message.text)
+        
+        if let statusHeight {
+            text
+                .frame(height: statusHeight, alignment: .topLeading)
+                .clipped()
+        }
+        else {
+            text
+                .background(GeometryReader { geometry in
+                    Color.clear
+                        .onAppear {
+                            statusHeight = geometry.size.height
+                        }
+                })
+        }
+    }
+    
+    
+    /// Decides what to show when this view appears, and starts whatever a pending or resolving prompt needs
+    private func handleAppearance() {
+        statusMessage = nil
+        statusHeight = nil
+        
+        let decision = PromptStore(scope: descriptor.scope)?.check(descriptor) ?? .hide
+        
+        switch decision {
+        case .show:
+            effectiveIsShowing.wrappedValue = true
+            
+        case .hide:
+            effectiveIsShowing.wrappedValue = false
+            
+        case .checkPending:
+            effectiveIsShowing.wrappedValue = false
+            Task {
+                await flow.checkPending()
+            }
+            
+        case .finishResolving:
+            effectiveIsShowing.wrappedValue = false
+            Task {
+                await flow.finishResolving()
+            }
+        }
+    }
+    
+    
     public var body: some View {
         presentedContent
         .onAppear {
-            effectiveIsShowing.wrappedValue = PromptStore(scope: descriptor.scope)?.check(descriptor) ?? false
+            handleAppearance()
         }
     }
 }

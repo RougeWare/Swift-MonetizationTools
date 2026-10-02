@@ -105,10 +105,15 @@ This package currently ships one, but plans to include more in the future:
         action: .storeKitPurchase(productId: "org.example.purchase.coins") // Sent to Apple
     )
     ```
+    Use one prompt identifier for one product. If the product is a consumable, don't also offer it through your own StoreKit code; your code can finish the purchase before this package sees it.
 
 Of course, you can build your own action by conforming a new type to `MonetizationPrompt.Action`. The scheduling, storage, and presentation machinery are still handled by this package, not by your new action. Your action is passed the SwiftUI environment of the prompt showing it, so it can use environment values like `openURL`, `purchase`.
 
-Your implementation of the `perform(id:scope:in:)` function can `await` anything for as long as it needs to, but must eventually return an `Outcome` (`.succeeded`, `.pending`, or `.abandoned`). If it returns `.pending`, then it also takes on the responsibility of handling what that means; your `perform(id:scope:in:)` function will be called periodically to check if the pending purchase was a success, and the prompt will be hidden in the meantime.
+Your implementation of the `perform(id:in:)` function can `await` anything for as long as it needs to, but must eventually return an `Outcome` (`.succeeded`, `.pending`, or `.abandoned`). If it returns `.pending`, then your action also has to implement `checkPending(id:)`, which reports the result later.
+
+`checkPending` is yours to get right. After `perform` returns `.pending`, it's the only way this package learns what happened. Return `.succeeded` when you know the person completed it. Return `.abandoned` only when you know for certain that it won't complete. In every other case, including a failed request or an unreachable server, return `.currentStateUnknown`. Returning `.abandoned` by mistake brings the prompt back for someone whose first attempt may still be open.
+
+Put a button that calls `flow.decline()` in your prompt's content. Someone who already paid and sees the prompt again can use it to end the prompt.
 
 ```swift
 struct KoFiLinkAction: MonetizationPrompt.Action {
@@ -116,11 +121,20 @@ struct KoFiLinkAction: MonetizationPrompt.Action {
 
     @MainActor
     func perform(id identifier: MonetizationPrompt.Identifier,
-                 scope: MonetizationPrompt.Scope,
                  in environment: EnvironmentValues) async throws -> Outcome {
         environment.openURL(donationPageUrl)
-        let didDonate = await checkWhetherTheUserActuallyDonated() // Take as long as you want
-        return didDonate ? .succeeded : .abandoned
+        return .pending
+    }
+
+    func checkPending(id identifier: MonetizationPrompt.Identifier) async -> Outcome {
+        // Ask your own server whether Ko-fi's webhook reported a payment for this prompt.
+        // If it didn't, or if your server couldn't be reached, you don't know yet.
+        if await yourServerSaysTheUserDonated() {
+            return .succeeded
+        }
+        else {
+            return .currentStateUnknown
+        }
     }
 }
 ```
@@ -178,7 +192,9 @@ In case you really wanna know how this shit will actually work:
 
 - **Errors and backing out don't affect the prompt** • If the user cancels a purchase sheet, or if some error occurs with purchasing, or the app crashes, etc., then the prompt stays where it is. Only explicit user action can dismiss/reschedule a monetization prompt
 
-- **If a kid needs parent approval, the prompt hides** • A purchase that needs approval, like Ask to Buy, hides the prompt and ignores its schedule until the purchase is completed or declined. That completion/decline behaves the same as it would in the typical case: completion hides the prompt forever, decline reschedules it.
+- **If a purchase needs someone else's approval, the prompt waits** • A purchase that needs approval, like Ask to Buy, replaces the prompt's content with a short message saying so. On later appearances the prompt is hidden, and the package keeps asking the action for the result. A success retires the prompt for good. If the result is that it didn't happen, or the package stops waiting, the prompt comes back later.
+
+- **One product, one identifier** • Use one prompt identifier for one product. Two identifiers for one product is a mistake, and this package doesn't detect or work around it. You can use one identifier in more than one place, such as on two screens; they share one stored state. If more than one of them is on screen at once and the user acts on one, what the others show isn't defined until they next appear.
 
 - **Minimal storage space** • A declined or fulfilled prompt is persisted with as little data as possible, so this package never takes up notable storage.
 

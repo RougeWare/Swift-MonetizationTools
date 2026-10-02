@@ -22,18 +22,30 @@ struct PromptStateTest {
     }
     
     
-    /// A pending prompt is stored as exactly its tag and nothing else
-    @Test func pendingPromptIsStoredAsExactlyStatePending() throws {
-        let data = try JSONEncoder().encode(PromptState.pending)
+    /// The documented examples of a pending and a resolving prompt read as exactly what they say
+    @Test(arguments: ["pending", "resolving"])
+    func documentedPendingAndResolvingFormsRead(kind: String) throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let stored = "{\"state\":\"\(kind)\",\"interval\":\"monthly\",\"since\":\"2026-09-30T12:34:00Z\"}"
+        let since = try #require(ISO8601DateFormatter().date(from: "2026-09-30T12:34:00Z"))
         
-        #expect("{\"state\":\"pending\"}" == String(decoding: data, as: UTF8.self))
+        let state = try decoder.decode(PromptState.self, from: Data(stored.utf8))
+        
+        if "pending" == kind {
+            #expect(PromptState.pending(interval: .monthly, since: since) == state)
+        }
+        else {
+            #expect(PromptState.resolving(interval: .monthly, since: since) == state)
+        }
     }
     
     
     /// Every state reads back as itself
     @Test(arguments: [
         PromptState.done,
-        PromptState.pending,
+        PromptState.pending(interval: .monthly, since: Date(timeIntervalSince1970: 1_790_000_000)),
+        PromptState.resolving(interval: .weekly, since: Date(timeIntervalSince1970: 1_790_000_000)),
         PromptState.scheduled(interval: .quarterly, nextEligible: Date(timeIntervalSince1970: 1_797_768_000)),
     ])
     func stateRoundTrips(state: PromptState) throws {
@@ -60,7 +72,7 @@ struct PromptStateTest {
     }
     
     
-    /// Anything which isn't one of the three shapes this type writes must fail to read, so a damaged record can't be
+    /// Anything which isn't one of the four shapes this type writes must fail to read, so a damaged record can't be
     /// mistaken for a valid one. That includes the untagged forms, which no build of this package ever stored.
     @Test(arguments: [
         "{}",
@@ -71,6 +83,10 @@ struct PromptStateTest {
         "{\"state\":\"scheduled\",\"interval\":\"fortnightly\",\"nextEligible\":\"2026-12-20T12:00:00Z\"}",
         "{\"done\":true}",
         "{\"pending\":true}",
+        "{\"state\":\"pending\"}",
+        "{\"state\":\"pending\",\"interval\":\"monthly\"}",
+        "{\"state\":\"pending\",\"since\":\"2026-09-30T12:34:00Z\"}",
+        "{\"state\":\"resolving\",\"interval\":\"monthly\"}",
         "{\"interval\":\"monthly\",\"nextEligible\":\"2026-12-20T12:00:00Z\"}",
         "[]",
         "true",
@@ -98,7 +114,7 @@ struct PromptSchedulingTest {
         
         let result = PromptStateLookup.none.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(false == result.isDue)
+        #expect(PromptDecision.hide == result.decision)
     }
     
     
@@ -121,7 +137,7 @@ struct PromptSchedulingTest {
         
         let result = reading.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(false == result.isDue)
+        #expect(PromptDecision.hide == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -133,7 +149,7 @@ struct PromptSchedulingTest {
         
         let result = reading.check(declaring: .monthly, at: nextEligible, in: .testing)
         
-        #expect(result.isDue)
+        #expect(PromptDecision.show == result.decision)
     }
     
     
@@ -146,7 +162,7 @@ struct PromptSchedulingTest {
         
         let result = reading.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(result.isDue)
+        #expect(PromptDecision.show == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -155,9 +171,10 @@ struct PromptSchedulingTest {
     @Test func pendingPromptIsNeverDue() throws {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
         
-        let result = PromptStateLookup.some(.success(.pending)).check(declaring: .weekly, at: now, in: .testing)
+        let since = try Date.noon(year: 2026, month: 1, day: 1)
+        let result = PromptStateLookup.some(.success(.pending(interval: .weekly, since: since))).check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(false == result.isDue)
+        #expect(PromptDecision.checkPending == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -168,7 +185,7 @@ struct PromptSchedulingTest {
         
         let result = PromptStateLookup.some(.success(.done)).check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(false == result.isDue)
+        #expect(PromptDecision.hide == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -180,7 +197,7 @@ struct PromptSchedulingTest {
         
         let result = reading.check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(false == result.isDue)
+        #expect(PromptDecision.hide == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -227,7 +244,8 @@ struct PromptSchedulingTest {
     @Test func snoozingAPendingPromptChangesNothing() throws {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         
-        let snoozed = PromptStateLookup.some(.success(.pending)).snoozed(declaring: .monthly, at: now, in: .testing)
+        let since = try Date.noon(year: 2026, month: 11, day: 1)
+        let snoozed = PromptStateLookup.some(.success(.pending(interval: .monthly, since: since))).snoozed(declaring: .monthly, at: now, in: .testing)
         
         #expect(nil == snoozed)
     }
@@ -251,5 +269,170 @@ struct PromptSchedulingTest {
         let snoozed = reading.snoozed(declaring: .monthly, at: now, in: .testing)
         
         #expect(nil == snoozed)
+    }
+    
+    
+    /// A success being recorded never shows, and asks for its recording to be finished
+    @Test func resolvingPromptFinishesResolving() throws {
+        let now = try Date.noon(year: 2126, month: 1, day: 1)
+        let since = try Date.noon(year: 2026, month: 1, day: 1)
+        
+        let result = PromptStateLookup.some(.success(.resolving(interval: .weekly, since: since))).check(declaring: .weekly, at: now, in: .testing)
+        
+        #expect(PromptDecision.finishResolving == result.decision)
+        #expect(nil == result.stateToRemember)
+    }
+}
+
+
+
+/// Checks what's stored as an attempt starts, ends, succeeds, or is given up on
+struct PromptAttemptTest {
+    
+    /// A stored lookup for each kind of state, so each transition can be checked against all of them
+    private static func lookups(since: Date) -> [(name: String, lookup: PromptStateLookup)] {
+        [
+            (name: "nothing stored", lookup: nil),
+            (name: "scheduled", lookup: .some(.success(.scheduled(interval: .monthly, nextEligible: since)))),
+            (name: "pending", lookup: .some(.success(.pending(interval: .monthly, since: since)))),
+            (name: "resolving", lookup: .some(.success(.resolving(interval: .monthly, since: since)))),
+            (name: "done", lookup: .some(.success(.done))),
+            (name: "unreadable", lookup: .some(.failure(StubAction.StubError()))),
+        ]
+    }
+    
+    
+    /// An attempt starts pending from a scheduled prompt, keeping its locked-in interval, and from nothing stored, using
+    /// the declared interval. Nothing else changes.
+    @Test func startingAnAttempt() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        let now = try Date.noon(year: 2026, month: 10, day: 1)
+        
+        for (name, lookup) in Self.lookups(since: since) {
+            let started = lookup.startingAttempt(declaring: .weekly, at: now)
+            
+            switch name {
+            case "nothing stored":
+                #expect(PromptState.pending(interval: .weekly, since: now) == started, "\(name)")
+                
+            case "scheduled":
+                #expect(PromptState.pending(interval: .monthly, since: now) == started, "\(name)")
+                
+            default:
+                #expect(nil == started, "\(name)")
+            }
+        }
+    }
+    
+    
+    /// Ending an attempt with nothing recorded makes a pending prompt due right away, and changes nothing else
+    @Test func cancellingAnAttempt() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        let now = try Date.noon(year: 2026, month: 10, day: 1)
+        
+        for (name, lookup) in Self.lookups(since: since) {
+            let cancelled = lookup.cancellingAttempt(at: now)
+            
+            if "pending" == name {
+                #expect(PromptState.scheduled(interval: .monthly, nextEligible: now) == cancelled, "\(name)")
+            }
+            else {
+                #expect(nil == cancelled, "\(name)")
+            }
+        }
+    }
+    
+    
+    /// A pending prompt becomes resolving with the same fields, and nothing else changes
+    @Test func recordingASuccess() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        
+        for (name, lookup) in Self.lookups(since: since) {
+            let recorded = lookup.recordingSuccess()
+            
+            if "pending" == name {
+                #expect(PromptState.resolving(interval: .monthly, since: since) == recorded, "\(name)")
+            }
+            else {
+                #expect(nil == recorded, "\(name)")
+            }
+        }
+    }
+    
+    
+    /// Giving up schedules a pending prompt one locked-in interval after now, and changes nothing else
+    @Test func givingUp() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        let now = try Date.noon(year: 2026, month: 10, day: 1)
+        let expectedNextEligible = try Date.noon(year: 2026, month: 11, day: 1)
+        
+        for (name, lookup) in Self.lookups(since: since) {
+            let givenUp = lookup.givingUp(at: now, in: .testing)
+            
+            if "pending" == name {
+                #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == givenUp, "\(name)")
+            }
+            else {
+                #expect(nil == givenUp, "\(name)")
+            }
+        }
+    }
+}
+
+
+
+/// Checks when the package stops waiting for an attempt's result
+struct GiveUpDateTest {
+    
+    /// A quarter of a 30-day month is 7.5 days
+    @Test func quarterOfAMonth() throws {
+        let reference = try Date.noon(year: 2026, month: 9, day: 1)
+        
+        #expect(7.5 * 24 * 60 * 60 == PromptInterval.monthly.quarterDuration(from: reference, in: .testing))
+    }
+    
+    
+    /// A duration inside the limits is used as given
+    @Test func durationInsideTheLimitsIsUsed() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        let twoDays: TimeInterval = 48 * 60 * 60
+        
+        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: twoDays, spacing: 300, in: .testing)
+        
+        #expect(since.addingTimeInterval(twoDays) == giveUpDate)
+    }
+    
+    
+    /// A negative duration means giving up right away
+    @Test func negativeDurationIsZero() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        
+        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: -1_000, spacing: 300, in: .testing)
+        
+        #expect(since == giveUpDate)
+    }
+    
+    
+    /// A duration longer than the interval stops one spacing before the interval ends
+    @Test func longDurationStopsBeforeTheIntervalEnds() throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        let oneWeekLater = try Date.noon(year: 2026, month: 9, day: 8)
+        
+        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: .infinity, spacing: 300, in: .testing)
+        
+        #expect(oneWeekLater.addingTimeInterval(-300) == giveUpDate)
+    }
+    
+    
+    /// StoreKit's fixed wait is the same for every interval, and the limits never shorten it
+    @Test(arguments: PromptInterval.allCases)
+    func storeKitWaitIsTheSameForEveryInterval(interval: PromptInterval) throws {
+        let since = try Date.noon(year: 2026, month: 9, day: 1)
+        let wait = StoreKitPurchaseAction.storeKitPurchase.maxTimeToCheckPendingTransactions(whenPromptAppears: interval)
+        
+        let giveUpDate = interval.giveUpDate(since: since, maxDuration: wait, spacing: 300, in: .testing)
+        
+        #expect(48 * 60 * 60 == wait)
+        #expect(since.addingTimeInterval(wait) == giveUpDate)
     }
 }

@@ -12,41 +12,31 @@ import Testing
 
 
 
-/// Checks what StoreKit's results mean for a prompt. A verified purchase can't be built without the App Store, so
-/// that case needs a manual test in an app with a StoreKit configuration file.
-@MainActor
+/// Checks what StoreKit's results mean for a prompt. Transactions can't be built without the App Store, so a verified
+/// purchase, `checkPending`, and `acknowledgeSuccess` need manual tests in an app with a StoreKit configuration file.
 struct StoreKitPurchaseActionTest {
     
-    /// Ask to Buy is waiting on someone else, so it's pending, and it's recorded so it can be found once it resolves
-    @Test func pendingPurchaseIsPendingAndRecorded() async throws {
-        try await withEphemeralDefaults { defaults in
-            let index = PendingPurchaseIndex(defaults: defaults)
-            
-            let outcome = try await StoreKitPurchaseAction.outcome(of: .pending,
-                                                                   identifier: "com.example.prompt",
-                                                                   scope: .perApp,
-                                                                   productId: "com.example.product",
-                                                                   index: index)
-            
-            #expect(MonetizationPrompt.ActionOutcome.pending == outcome)
-            #expect([PendingPurchase(productId: "com.example.product", promptIdentifier: "com.example.prompt", scope: .perApp)] == index.all)
-        }
+    /// Ask to Buy is waiting on someone else, so it's pending
+    @Test func pendingPurchaseIsPending() throws {
+        let outcome = try StoreKitPurchaseAction.outcome(of: .pending)
+        
+        #expect(MonetizationPrompt.ActionOutcome.pending == outcome)
     }
     
     
-    /// Cancelling the purchase sheet is backing out, not refusing, and nothing is recorded
-    @Test func cancelledPurchaseIsAbandonedAndNotRecorded() async throws {
-        try await withEphemeralDefaults { defaults in
-            let index = PendingPurchaseIndex(defaults: defaults)
-            
-            let outcome = try await StoreKitPurchaseAction.outcome(of: .userCancelled,
-                                                                   identifier: "com.example.prompt",
-                                                                   scope: .perApp,
-                                                                   productId: "com.example.product",
-                                                                   index: index)
-            
-            #expect(MonetizationPrompt.ActionOutcome.abandoned == outcome)
-            #expect(index.all.isEmpty)
-        }
+    /// Cancelling the purchase sheet is backing out, not refusing
+    @Test func cancelledPurchaseIsAbandoned() throws {
+        let outcome = try StoreKitPurchaseAction.outcome(of: .userCancelled)
+        
+        #expect(MonetizationPrompt.ActionOutcome.abandoned == outcome)
+    }
+    
+    
+    /// StoreKit stops waiting after the same fixed time, whatever the prompt's interval
+    @Test(arguments: PromptInterval.allCases)
+    func waitIsFixed(interval: PromptInterval) {
+        let wait = StoreKitPurchaseAction.storeKitPurchase.maxTimeToCheckPendingTransactions(whenPromptAppears: interval)
+        
+        #expect(48 * 60 * 60 == wait)
     }
 }

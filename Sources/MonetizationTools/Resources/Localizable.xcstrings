@@ -1,0 +1,30 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "status.completed" : {
+      "comment" : "Shown in place of the previous message once the purchase is complete. Keep it no longer than the previous message.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thank you. Your purchase is complete."
+          }
+        }
+      }
+    },
+    "status.pending" : {
+      "comment" : "Shown in place of a prompt after the person asked to buy something which needs approval first, such as a parent approving an Ask to Buy request.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thank you. Your purchase request has been sent and is awaiting approval."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
