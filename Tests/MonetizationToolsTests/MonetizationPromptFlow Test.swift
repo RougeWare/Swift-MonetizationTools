@@ -274,7 +274,7 @@ struct MonetizationPromptFlowTest {
         try await withEphemeralDefaults { defaults in
             let store = PromptStore(defaults: defaults)
             let state = ViewState()
-            let since = Date.now
+            let since = Date(timeIntervalSince1970: Date.now.timeIntervalSince1970.rounded(.down)) // Stored dates keep whole seconds
             store.persist(.pending(interval: .weekly, since: since), for: Self.identifier)
             
             await flow(running: StubAction(pendingResult: .currentStateUnknown), store: store, state: state).checkPending()
