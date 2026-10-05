@@ -111,16 +111,16 @@ extension PromptStateLookup {
 // MARK: - Actions
 
 /// A stand-in for a real action, which does whatever a test tells it to and records what it was asked to do
-struct StubAction: MonetizationPrompt.Action {
+struct StubAction: PaymentHandler {
     
     /// What happened when this action ran, for a test to choose
-    let result: Result<MonetizationPrompt.ActionOutcome, StubError>
+    let result: Result<PaymentOutcome, StubError>
     
     /// What `checkPending` reports, for a test to choose
-    let pendingResult: MonetizationPrompt.ActionOutcome
+    let pendingResult: PaymentOutcome
     
     /// How long to keep checking a pending attempt, or `nil` to use the protocol's default
-    let maxCheckingTime: TimeInterval?
+    let maxCheckingTime: Duration?
     
     /// Records each time this action is asked to do something
     let counter: Counter
@@ -134,9 +134,9 @@ struct StubAction: MonetizationPrompt.Action {
     ///   - maxCheckingTime: _optional_ - How long to keep checking a pending attempt. Defaults to the protocol's default.
     ///   - counter:         _optional_ - Records what the action was asked. Defaults to a counter which nobody reads.
     @MainActor
-    init(_ result: Result<MonetizationPrompt.ActionOutcome, StubError> = .success(.succeeded),
-         pendingResult: MonetizationPrompt.ActionOutcome = .currentStateUnknown,
-         maxCheckingTime: TimeInterval? = nil,
+    init(_ result: Result<PaymentOutcome, StubError> = .success(.succeeded),
+         pendingResult: PaymentOutcome = .currentStateUnknown,
+         maxCheckingTime: Duration? = nil,
          counter: Counter = Counter()) {
         self.result = result
         self.pendingResult = pendingResult
@@ -146,8 +146,8 @@ struct StubAction: MonetizationPrompt.Action {
     
     
     @MainActor
-    func perform(id identifier: MonetizationPrompt.Identifier,
-                 in environment: EnvironmentValues) async throws -> Outcome {
+    func launch(id identifier: MonetizationPrompt.Identifier,
+                in environment: EnvironmentValues) async throws -> Outcome {
         counter.count += 1
         counter.events.append(.perform)
         counter.onPerform?()
@@ -162,13 +162,13 @@ struct StubAction: MonetizationPrompt.Action {
     }
     
     
-    func acknowledgeSuccess(id identifier: MonetizationPrompt.Identifier) async {
+    func handleSuccess(id identifier: MonetizationPrompt.Identifier) async {
         await counter.record(.acknowledgeSuccess)
     }
     
     
-    func maxTimeToCheckPendingTransactions(whenPromptAppears interval: PromptInterval) -> TimeInterval {
-        maxCheckingTime ?? interval.quarterDuration(from: .now)
+    func maxTimeToCheckPendingTransactions(whenPromptAppears interval: PromptInterval) -> Duration {
+        maxCheckingTime ?? (interval.duration(since: .now) / 4)
     }
     
     
@@ -176,13 +176,13 @@ struct StubAction: MonetizationPrompt.Action {
     @MainActor
     final class Counter {
         
-        /// How many times the action's `perform` has run
+        /// How many times the action's `launch` has run
         var count = 0
         
         /// Everything the action was asked to do, in order
         var events: [Event] = []
         
-        /// Runs inside `perform`, so a test can look at storage while the action is running
+        /// Runs inside `launch`, so a test can look at storage while the action is running
         var onPerform: (@MainActor () -> Void)? = nil
         
         /// Runs inside `acknowledgeSuccess`, so a test can look at storage while the action is running
@@ -216,12 +216,12 @@ struct StubAction: MonetizationPrompt.Action {
 
 
 
-/// An action which implements only `perform`, so tests can check the protocol's default implementations
-struct MinimalAction: MonetizationPrompt.Action {
+/// An action which implements only `launch`, so tests can check the protocol's default implementations
+struct MinimalPaymentHandler: PaymentHandler {
     
     @MainActor
-    func perform(id identifier: MonetizationPrompt.Identifier,
-                 in environment: EnvironmentValues) async throws -> Outcome {
+    func launch(id identifier: MonetizationPrompt.Identifier,
+                in environment: EnvironmentValues) async throws -> Outcome {
         .pending
     }
 }

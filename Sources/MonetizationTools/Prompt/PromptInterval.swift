@@ -47,26 +47,26 @@ internal extension PromptInterval {
     /// Advances the given date by this interval's amount
     /// 
     /// - Parameters:
-    ///   - date:     The reference date
-    ///   - calendar: _optional_ - The calendar which decides what "a month" means here. Defaults to the current calendar.
+    ///   - previousDate: The reference date
+    ///   - calendar:     _optional_ - The calendar which decides what "a month" means here. Defaults to the current calendar.
     ///
     /// - Returns: One interval after the reference date
-    func date(after date: Date, in calendar: Calendar = .current) -> Date {
-        calendar.date(byAdding: dateComponents, to: date)
-            ?? date.addingTimeInterval(approximateSeconds) // Only reachable if the calendar can't represent the result
+    func date(after previousDate: Date, in calendar: Calendar = .current) -> Date {
+        calendar.date(byAdding: dateComponents, to: previousDate)
+            ?? (previousDate + approximateDuration) // Only reachable if the calendar can't represent the result
     }
     
     
     /// A rough number of seconds in this interval, used only as a fallback when calendar math fails outright.
     ///
-    /// `.yearly` uses the mean tropical year (365.24219 days) rather than a plain 365, since this is the only place a year's length is defined and other values derive from it.
+    /// `.yearly` uses the mean tropical year (365.24219 days), and `.monthly` & `.quarterly` are defined based off that
     @inline(__always)
-    private var approximateSeconds: TimeInterval {
+    private var approximateDuration: Duration {
         switch self {
-        case .weekly:    60 * 60 * 24 * 7
-        case .monthly:   Self.yearly.approximateSeconds / 12
-        case .quarterly: Self.yearly.approximateSeconds / 4
-        case .yearly:    60 * 60 * 24 * 365.24219 // 1 mean tropical year
+        case .weekly:    .days(7)
+        case .monthly:   Self.yearly.approximateDuration / 12
+        case .quarterly: Self.yearly.approximateDuration / 4
+        case .yearly:    .days(365.24219) // 1 mean tropical year
         }
     }
 }

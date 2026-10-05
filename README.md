@@ -1,6 +1,6 @@
 # Swift `MonetizationTools`
 
-Monetize your app in consistent, user-friendly ways.
+Monetize your SwiftUI app in consistent, user-friendly ways.
 
 This package gives you the tools to create monetization flows in your app which never annoy the user; they're all opt-in and fail safely to modes which can't result in bad UX.
 
@@ -199,19 +199,27 @@ In case you really wanna know how this shit will actually work:
 - **Minimal storage space** • A declined or fulfilled prompt is persisted with as little data as possible, so this package never takes up notable storage.
 
 
-## Requirements
 
-iOS 17+, macOS 14+, tvOS 17+, watchOS 10+, visionOS 1+. Swift 6.
+## Batteries included!
 
-Depends on [SpecialString](https://github.com/RougeWare/Swift-Special-String) for the identifier type,
-[SerializationTools](https://github.com/RougeWare/Swift-SerializationTools) for JSON persistence, and
-[SimpleLogging](https://github.com/RougeWare/Swift-Simple-Logging) for diagnostic logging.
+### It Just Works™
+
+You never have to run setup code, nor ask this package to do something that needs to be done. You tell the package how to handle the payments and what your UI looks like, and it handles the rest.
+
+`MonetizationTools` attempts to handle edge cases gracefully so you don't have to, and provides APIs to tweak that behavior as-needed.
+
+
+### Payment handlers
+
+This package ships with StoreKit already supported. Just use `.storeKitPurchase` when you make a prompt descriptor, and that prompt's payments will go through StoreKit.
+
+You may also create your own payment handlers by conforming to `PaymentHandler`, for example if you want the user to pay you via Stripe, Ko-Fi, PayPal, etc..
 
 
 
 ## LLM transparency
 
-[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo, and wrote the vast majority of it. Nothing gets into production code without my careful review and explicit approval, no matter who or what wrote it. See [the PRs](https://github.com/RougeWare/Swift-MonetizationTools/pulls) for proof of that.
+[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo, and wrote the majority of it. Nothing gets into production code without my careful review and explicit approval, no matter who or what wrote it. See [the PRs](https://github.com/RougeWare/Swift-MonetizationTools/pulls) for proof of that.
 
 A lot of it was written using LLMs, either directly writing it, or assisting contributors like myself.
 

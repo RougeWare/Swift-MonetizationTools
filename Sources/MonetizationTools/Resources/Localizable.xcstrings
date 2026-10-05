@@ -5,10 +5,298 @@
       "comment" : "Shown in place of the previous message once the purchase is complete. Keep it no longer than the previous message.",
       "extractionState" : "manual",
       "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شكرًا. اكتملت عملية الشراء."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Благодарим ви. Покупката ви е завършена."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ধন্যবাদ। আপনার ক্রয় সম্পন্ন হয়েছে।"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gràcies. La compra s’ha completat."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Děkujeme. Váš nákup byl dokončen."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tak. Dit køb er gennemført."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vielen Dank. Ihr Kauf ist abgeschlossen."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ευχαριστούμε. Η αγορά σας ολοκληρώθηκε."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Thank you. Your purchase is complete."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gracias. Su compra se ha completado."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kiitos. Ostoksesi on suoritettu."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merci. Votre achat est terminé."
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "આભાર. તમારી ખરીદી પૂર્ણ થઈ ગઈ છે."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "תודה. הרכישה שלך הושלמה."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "धन्यवाद। आपकी खरीदारी पूरी हो गई है।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvala. Vaša kupnja je dovršena."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Köszönjük. A vásárlás befejeződött."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terima kasih. Pembelian Anda telah selesai."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grazie. L’acquisto è stato completato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ありがとうございます。購入が完了しました。"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рахмет. Сатып алуыңыз аяқталды."
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಧನ್ಯವಾದಗಳು. ನಿಮ್ಮ ಖರೀದಿ ಪೂರ್ಣಗೊಂಡಿದೆ."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "감사합니다. 구매가 완료되었습니다."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ačiū. Jūsų pirkimas užbaigtas."
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "നന്ദി. നിങ്ങളുടെ വാങ്ങൽ പൂർത്തിയായി."
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "धन्यवाद. तुमची खरेदी पूर्ण झाली आहे."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terima kasih. Pembelian anda telah selesai."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Takk. Kjøpet ditt er fullført."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bedankt. Uw aankoop is voltooid."
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଧନ୍ୟବାଦ। ଆପଣଙ୍କର କ୍ରୟ ସମ୍ପୂର୍ଣ୍ଣ ହୋଇଛି।"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਧੰਨਵਾਦ। ਤੁਹਾਡੀ ਖਰੀਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ।"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dziękujemy. Twój zakup został zakończony."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agradecemos. Sua compra foi concluída."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agradecemos. A sua compra foi concluída."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mulțumim. Achiziția a fost finalizată."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спасибо. Ваша покупка завершена."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ďakujeme. Váš nákup bol dokončený."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvala. Vaš nakup je končan."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tack. Ditt köp är slutfört."
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "நன்றி. உங்கள் வாங்குதல் முடிந்தது."
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ధన్యవాదాలు. మీ కొనుగోలు పూర్తయింది."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขอบคุณ การซื้อของคุณเสร็จสมบูรณ์แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teşekkürler. Satın alma işleminiz tamamlandı."
+          }
+        },
+        "tt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рәхмәт. Сезнең сатып алуыгыз тәмамланды."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дякуємо. Вашу покупку завершено."
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شکریہ۔ آپ کی خریداری مکمل ہو گئی ہے۔"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cảm ơn bạn. Giao dịch mua của bạn đã hoàn tất."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "谢谢。您的购买已完成。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "謝謝。您的購買已完成。"
           }
         }
       }
@@ -17,10 +305,298 @@
       "comment" : "Shown in place of a prompt after the person asked to buy something which needs approval first, such as a parent approving an Ask to Buy request.",
       "extractionState" : "manual",
       "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شكرًا. تم إرسال طلب الشراء وهو بانتظار الموافقة."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Благодарим ви. Заявката ви за покупка е изпратена и очаква одобрение."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ধন্যবাদ। আপনার ক্রয়ের অনুরোধ পাঠানো হয়েছে এবং অনুমোদনের অপেক্ষায় আছে।"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gràcies. La sol·licitud de compra s’ha enviat i està pendent d’aprovació."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Děkujeme. Váš požadavek na nákup byl odeslán a čeká na schválení."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tak. Din købsanmodning er sendt og afventer godkendelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vielen Dank. Ihre Kaufanfrage wurde gesendet und wartet auf Genehmigung."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ευχαριστούμε. Το αίτημα αγοράς σας στάλθηκε και αναμένει έγκριση."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Thank you. Your purchase request has been sent and is awaiting approval."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gracias. Su solicitud de compra se ha enviado y está pendiente de aprobación."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kiitos. Ostopyyntösi on lähetetty ja odottaa hyväksyntää."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merci. Votre demande d’achat a été envoyée et est en attente d’approbation."
+          }
+        },
+        "gu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "આભાર. તમારી ખરીદીની વિનંતી મોકલવામાં આવી છે અને મંજૂરીની રાહ જોઈ રહી છે."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "תודה. בקשת הרכישה שלך נשלחה וממתינה לאישור."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "धन्यवाद। आपका खरीद अनुरोध भेज दिया गया है और स्वीकृति की प्रतीक्षा में है।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvala. Vaš zahtjev za kupnju je poslan i čeka odobrenje."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Köszönjük. Vásárlási kérelmét elküldtük, és jóváhagyásra vár."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terima kasih. Permintaan pembelian Anda telah dikirim dan sedang menunggu persetujuan."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grazie. La richiesta di acquisto è stata inviata ed è in attesa di approvazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ありがとうございます。購入リクエストは送信済みで、承認待ちです。"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рахмет. Сатып алу сұранысыңыз жіберілді және мақұлдауды күтуде."
+          }
+        },
+        "kn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ಧನ್ಯವಾದಗಳು. ನಿಮ್ಮ ಖರೀದಿ ವಿನಂತಿಯನ್ನು ಕಳುಹಿಸಲಾಗಿದೆ ಮತ್ತು ಅನುಮೋದನೆಗಾಗಿ ಕಾಯುತ್ತಿದೆ."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "감사합니다. 구매 요청이 전송되었으며 승인을 기다리고 있습니다."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ačiū. Jūsų pirkimo užklausa išsiųsta ir laukia patvirtinimo."
+          }
+        },
+        "ml" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "നന്ദി. നിങ്ങളുടെ വാങ്ങൽ അഭ്യർത്ഥന അയച്ചു, അംഗീകാരത്തിനായി കാത്തിരിക്കുന്നു."
+          }
+        },
+        "mr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "धन्यवाद. तुमची खरेदी विनंती पाठवली गेली आहे आणि मंजुरीची प्रतीक्षा करत आहे."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terima kasih. Permintaan pembelian anda telah dihantar dan sedang menunggu kelulusan."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Takk. Kjøpsforespørselen din er sendt og venter på godkjenning."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bedankt. Uw aankoopverzoek is verzonden en wacht op goedkeuring."
+          }
+        },
+        "or" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ଧନ୍ୟବାଦ। ଆପଣଙ୍କର କ୍ରୟ ଅନୁରୋଧ ପଠାଯାଇଛି ଏବଂ ଅନୁମୋଦନ ପାଇଁ ଅପେକ୍ଷା କରୁଛି।"
+          }
+        },
+        "pa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ਧੰਨਵਾਦ। ਤੁਹਾਡੀ ਖਰੀਦ ਦੀ ਬੇਨਤੀ ਭੇਜ ਦਿੱਤੀ ਗਈ ਹੈ ਅਤੇ ਮਨਜ਼ੂਰੀ ਦੀ ਉਡੀਕ ਕਰ ਰਹੀ ਹੈ।"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dziękujemy. Twoja prośba o zakup została wysłana i oczekuje na zatwierdzenie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agradecemos. Sua solicitação de compra foi enviada e aguarda aprovação."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agradecemos. O seu pedido de compra foi enviado e aguarda aprovação."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mulțumim. Solicitarea de achiziție a fost trimisă și așteaptă aprobarea."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спасибо. Ваш запрос на покупку отправлен и ожидает одобрения."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ďakujeme. Vaša žiadosť o nákup bola odoslaná a čaká na schválenie."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvala. Vaša zahteva za nakup je bila poslana in čaka na odobritev."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tack. Din köpförfrågan har skickats och väntar på godkännande."
+          }
+        },
+        "ta" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "நன்றி. உங்கள் வாங்குதல் கோரிக்கை அனுப்பப்பட்டது, ஒப்புதலுக்காகக் காத்திருக்கிறது."
+          }
+        },
+        "te" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ధన్యవాదాలు. మీ కొనుగోలు అభ్యర్థన పంపబడింది మరియు ఆమోదం కోసం వేచి ఉంది."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขอบคุณ คำขอซื้อของคุณถูกส่งแล้วและกำลังรอการอนุมัติ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teşekkürler. Satın alma isteğiniz gönderildi ve onay bekliyor."
+          }
+        },
+        "tt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рәхмәт. Сезнең сатып алу соравыгыз җибәрелде һәм раслауны көтә."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дякуємо. Ваш запит на покупку надіслано, він очікує схвалення."
+          }
+        },
+        "ur" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شکریہ۔ آپ کی خریداری کی درخواست بھیج دی گئی ہے اور منظوری کی منتظر ہے۔"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cảm ơn bạn. Yêu cầu mua hàng của bạn đã được gửi và đang chờ phê duyệt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "谢谢。您的购买请求已发送，正在等待批准。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "謝謝。您的購買要求已傳送，正在等待核准。"
           }
         }
       }

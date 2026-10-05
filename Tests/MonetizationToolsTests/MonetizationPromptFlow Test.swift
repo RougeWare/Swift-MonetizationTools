@@ -289,9 +289,9 @@ struct MonetizationPromptFlowTest {
         try await withEphemeralDefaults { defaults in
             let store = PromptStore(defaults: defaults)
             let state = ViewState()
-            store.persist(.pending(interval: .weekly, since: .now.addingTimeInterval(-3 * 24 * 60 * 60)), for: Self.identifier)
+            store.persist(.pending(interval: .weekly, since: .now + .days(-3)), for: Self.identifier)
             
-            await flow(running: StubAction(pendingResult: .currentStateUnknown, maxCheckingTime: 24 * 60 * 60), store: store, state: state).checkPending()
+            await flow(running: StubAction(pendingResult: .currentStateUnknown, maxCheckingTime: .days(1)), store: store, state: state).checkPending()
             
             guard case .some(.scheduled(interval: .weekly, nextEligible: _)) = store.lookUpState(for: Self.identifier).recordedState else {
                 Issue.record("The prompt should be scheduled again")
@@ -352,12 +352,12 @@ struct MonetizationPromptFlowTest {
     
     /// An action which doesn't implement checking reports that it doesn't know, and acknowledging does nothing
     @Test func defaultsDontKnowAndDoNothing() async {
-        let action = MinimalAction()
+        let action = MinimalPaymentHandler()
         
         let outcome = await action.checkPending(id: Self.identifier)
-        await action.acknowledgeSuccess(id: Self.identifier)
+        await action.handleSuccess(id: Self.identifier)
         
-        #expect(MonetizationPrompt.ActionOutcome.currentStateUnknown == outcome)
+        #expect(PaymentOutcome.currentStateUnknown == outcome)
     }
     
     

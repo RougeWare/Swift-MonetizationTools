@@ -46,7 +46,7 @@ public extension MonetizationPrompt {
         public let scope: MonetizationPrompt.Scope
         
         /// What happens when someone takes this prompt up on its offer
-        public let action: any MonetizationPrompt.Action
+        public let action: any PaymentHandler
         
         
         /// - Parameters:
@@ -64,7 +64,7 @@ public extension MonetizationPrompt {
             _ identifier: MonetizationPrompt.Identifier,
             atMost interval: PromptInterval = .monthly,
             scope: MonetizationPrompt.Scope = .perApp,
-            action: any MonetizationPrompt.Action
+            action: any PaymentHandler
         ) {
             self.identifier = identifier
             self.interval = interval

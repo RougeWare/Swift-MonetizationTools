@@ -202,7 +202,7 @@ internal extension MonetizationPrompt.Flow {
     }
     
     
-    /// Finishes recording a success which was interrupted: calls the action's `acknowledgeSuccess`, then stores `.done`.
+    /// Finishes recording a success which was interrupted: calls the action's `handleSuccess`, then stores `.done`.
     func finishResolving() async {
         let key = limiterKey
         guard limiter.begin(key, at: .now, isCheck: false) else {
@@ -217,7 +217,7 @@ internal extension MonetizationPrompt.Flow {
             return
         }
         
-        await descriptor.action.acknowledgeSuccess(id: descriptor.identifier)
+        await descriptor.action.handleSuccess(id: descriptor.identifier)
         store.retire(descriptor.identifier)
     }
 }
@@ -247,7 +247,7 @@ private extension MonetizationPrompt.Flow {
         
         isPresenting.wrappedValue = true
         
-        let outcome: MonetizationPrompt.ActionOutcome
+        let outcome: PaymentOutcome
         do {
             outcome = try await attempt()
         }
@@ -258,7 +258,7 @@ private extension MonetizationPrompt.Flow {
         
         endAttempt(key)
         
-        if MonetizationPrompt.ActionOutcome.pending == outcome {
+        if PaymentOutcome.pending == outcome {
             Task {
                 await checkPending()
             }
@@ -270,12 +270,12 @@ private extension MonetizationPrompt.Flow {
     ///
     /// - Returns: What the action reported
     /// - Throws: Whatever the action threw, after putting the prompt back to due
-    func attempt() async throws -> MonetizationPrompt.ActionOutcome {
+    func attempt() async throws -> PaymentOutcome {
         store?.update(descriptor.identifier) { $0.startingAttempt(declaring: descriptor.interval, at: .now) }
         
-        let outcome: MonetizationPrompt.ActionOutcome
+        let outcome: PaymentOutcome
         do {
-            outcome = try await descriptor.action.perform(id: descriptor.identifier, in: environment)
+            outcome = try await descriptor.action.launch(id: descriptor.identifier, in: environment)
         }
         catch {
             store?.update(descriptor.identifier) { $0.cancellingAttempt(at: .now) }
@@ -306,11 +306,11 @@ private extension MonetizationPrompt.Flow {
     }
     
     
-    /// Records a success: stores `.resolving`, calls the action's `acknowledgeSuccess`, stores `.done`, then hides the
+    /// Records a success: stores `.resolving`, calls the action's `handleSuccess`, stores `.done`, then hides the
     /// prompt. If the pending status message is on screen, it shows the completed message instead of hiding.
     func recordSuccess() async {
         store?.update(descriptor.identifier) { $0.recordingSuccess() }
-        await descriptor.action.acknowledgeSuccess(id: descriptor.identifier)
+        await descriptor.action.handleSuccess(id: descriptor.identifier)
         store?.retire(descriptor.identifier)
         
         if PromptStatusMessage.pending == statusMessage.wrappedValue {

@@ -18,7 +18,7 @@ internal final class PendingCheckLimiter {
     static let shared = PendingCheckLimiter()
     
     /// The minimum time between the end of one check and the start of the next, for one prompt
-    static let spacing: TimeInterval = 5 * 60
+    static let spacing: Duration = .minutes(5)
     
     /// The keys of prompts with an attempt or check running right now
     private var running: Set<String> = []
@@ -58,7 +58,7 @@ internal final class PendingCheckLimiter {
         
         if isCheck,
            let lastCheckEnded = lastCheckEnded[key],
-           now < lastCheckEnded.addingTimeInterval(Self.spacing)
+           now < (lastCheckEnded + Self.spacing)
         {
             return false
         }

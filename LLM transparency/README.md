@@ -1,6 +1,6 @@
 # LLM transparency
 
-[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo.
+[I, Ky,](https://KyLeggiero.me) reviewed all the code in this repo, and wrote the majority of it. Nothing gets into production code without my careful review and explicit approval, no matter who or what wrote it. See [the PRs](https://github.com/RougeWare/Swift-MonetizationTools/pulls) for proof of that.
 
 A lot of it was written using LLMs, either directly writing it, or assisting contributors like myself.
 
@@ -33,7 +33,8 @@ Tiny shit like autocomplete isn't mentioned anywhere because it's not significan
 
 ## How much autonomy were the LLMs given?
 
-None of these LLMs were given direct access to the repo.
+No LLMs were ever given direct access to the repo; they can only make PRs, and never review/approve/decline them.
+
 None of the code was accepted blindly; check [the PRs](https://github.com/BlueHuskyStudios/DeadassSimpleMediaPlayer/pulls) for proof. **Fuck vibe coding.**
 
 Any time an LLM is asked to do notable work (e.g. implement a minor feature or fix a minor bug all on its own), that LLM is required to keep a Markdown journal of its actions. That journal is then manually checked for accuracy against the changes it performed, and saved in this folder.

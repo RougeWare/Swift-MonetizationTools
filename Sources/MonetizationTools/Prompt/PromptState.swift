@@ -42,8 +42,8 @@ internal enum PromptState: Sendable, Hashable {
     case pending(interval: PromptInterval, since: Date)
     
     /// An attempt succeeded, and the package is in the middle of recording that. It's stored before the action's
-    /// `acknowledgeSuccess` runs, and replaced by `.done` after. If the app dies in between, the next appearance repeats
-    /// `acknowledgeSuccess` and stores `.done`.
+    /// `handleSuccess` runs, and replaced by `.done` after. If the app dies in between, the next appearance repeats
+    /// `handleSuccess` and stores `.done`.
     ///
     /// Stored as `{"state":"resolving","interval":"<case name>","since":"<ISO 8601 date>"}`, for example
     /// `{"state":"resolving","interval":"monthly","since":"2026-09-30T12:34:00Z"}`.
@@ -378,21 +378,21 @@ internal extension PromptInterval {
     /// minus `spacing`. A calendar month counts as its real length.
     ///
     /// - Parameters:
-    ///   - since:       When the attempt started
-    ///   - maxDuration: How long the action wants to keep checking
-    ///   - spacing:     The minimum time between two checks
-    ///   - calendar:    _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
+    ///   - attemptStartDate: When the attempt started
+    ///   - maxDuration:      How long the action wants to keep checking
+    ///   - spacing:          The minimum time between two checks
+    ///   - calendar:         _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
     ///
     /// - Returns: The give-up time
-    func giveUpDate(since: Date,
-                    maxDuration: TimeInterval,
-                    spacing: TimeInterval,
+    func giveUpDate(since attemptStartDate: Date,
+                    maxDuration: Duration,
+                    spacing: Duration,
                     in calendar: Calendar = .current)
     -> Date {
-        let span = date(after: since, in: calendar).timeIntervalSince(since)
-        let upperLimit = max(0, span - spacing)
-        let duration = min(max(0, maxDuration), upperLimit)
-        return since.addingTimeInterval(duration)
+        let span = date(after: attemptStartDate, in: calendar).duration(since: attemptStartDate)
+        let upperLimit = max(.zero, span - spacing)
+        let duration = min(max(.zero, maxDuration), upperLimit)
+        return attemptStartDate + duration
     }
     
     
@@ -404,7 +404,7 @@ internal extension PromptInterval {
     ///   - calendar:  _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
     ///
     /// - Returns: A quarter of the interval, in seconds
-    func quarterDuration(from reference: Date, in calendar: Calendar = .current) -> TimeInterval {
-        date(after: reference, in: calendar).timeIntervalSince(reference) / 4
+    func duration(since reference: Date, in calendar: Calendar = .current) -> Duration {
+        date(after: reference, in: calendar).duration(since: reference)
     }
 }

@@ -44,8 +44,8 @@ struct PendingCheckLimiterTest {
         #expect(limiter.begin("a", at: now, isCheck: true))
         limiter.end("a", at: now, isCheck: true)
         
-        #expect(false == limiter.begin("a", at: now.addingTimeInterval(PendingCheckLimiter.spacing - 1), isCheck: true))
-        #expect(limiter.begin("a", at: now.addingTimeInterval(PendingCheckLimiter.spacing), isCheck: true))
+        #expect(false == limiter.begin("a", at: now + (PendingCheckLimiter.spacing - .seconds(1)), isCheck: true))
+        #expect(limiter.begin("a", at: now + PendingCheckLimiter.spacing, isCheck: true))
     }
     
     

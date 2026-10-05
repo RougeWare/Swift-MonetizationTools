@@ -13,30 +13,30 @@ import Testing
 
 
 /// Checks what StoreKit's results mean for a prompt. Transactions can't be built without the App Store, so a verified
-/// purchase, `checkPending`, and `acknowledgeSuccess` need manual tests in an app with a StoreKit configuration file.
+/// purchase, `checkPending`, and `handleSuccess` need manual tests in an app with a StoreKit configuration file.
 struct StoreKitPurchaseActionTest {
     
     /// Ask to Buy is waiting on someone else, so it's pending
     @Test func pendingPurchaseIsPending() throws {
-        let outcome = try StoreKitPurchaseAction.outcome(of: .pending)
+        let outcome = try PaymentOutcome(.pending)
         
-        #expect(MonetizationPrompt.ActionOutcome.pending == outcome)
+        #expect(PaymentOutcome.pending == outcome)
     }
     
     
     /// Cancelling the purchase sheet is backing out, not refusing
     @Test func cancelledPurchaseIsAbandoned() throws {
-        let outcome = try StoreKitPurchaseAction.outcome(of: .userCancelled)
+        let outcome = try PaymentOutcome(.userCancelled)
         
-        #expect(MonetizationPrompt.ActionOutcome.abandoned == outcome)
+        #expect(PaymentOutcome.abandoned == outcome)
     }
     
     
     /// StoreKit stops waiting after the same fixed time, whatever the prompt's interval
     @Test(arguments: PromptInterval.allCases)
     func waitIsFixed(interval: PromptInterval) {
-        let wait = StoreKitPurchaseAction.storeKitPurchase.maxTimeToCheckPendingTransactions(whenPromptAppears: interval)
+        let wait = StoreKitPaymentHandler.storeKitPurchase.maxTimeToCheckPendingTransactions(whenPromptAppears: interval)
         
-        #expect(48 * 60 * 60 == wait)
+        #expect(.days(2) == wait)
     }
 }

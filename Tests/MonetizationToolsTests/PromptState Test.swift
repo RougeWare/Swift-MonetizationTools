@@ -388,18 +388,18 @@ struct GiveUpDateTest {
     @Test func quarterOfAMonth() throws {
         let reference = try Date.noon(year: 2026, month: 9, day: 1)
         
-        #expect(7.5 * 24 * 60 * 60 == PromptInterval.monthly.quarterDuration(from: reference, in: .testing))
+        #expect(.days(7.5) == PromptInterval.monthly.duration(since: reference, in: .testing) / 4)
     }
     
     
     /// A duration inside the limits is used as given
     @Test func durationInsideTheLimitsIsUsed() throws {
         let since = try Date.noon(year: 2026, month: 9, day: 1)
-        let twoDays: TimeInterval = 48 * 60 * 60
+        let twoDays: Duration = .days(2)
         
-        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: twoDays, spacing: 300, in: .testing)
+        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: twoDays, spacing: .minutes(5), in: .testing)
         
-        #expect(since.addingTimeInterval(twoDays) == giveUpDate)
+        #expect((since + twoDays) == giveUpDate)
     }
     
     
@@ -407,7 +407,7 @@ struct GiveUpDateTest {
     @Test func negativeDurationIsZero() throws {
         let since = try Date.noon(year: 2026, month: 9, day: 1)
         
-        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: -1_000, spacing: 300, in: .testing)
+        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: .seconds(-1_000), spacing: .minutes(5), in: .testing)
         
         #expect(since == giveUpDate)
     }
@@ -418,9 +418,9 @@ struct GiveUpDateTest {
         let since = try Date.noon(year: 2026, month: 9, day: 1)
         let oneWeekLater = try Date.noon(year: 2026, month: 9, day: 8)
         
-        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: .infinity, spacing: 300, in: .testing)
+        let giveUpDate = PromptInterval.weekly.giveUpDate(since: since, maxDuration: .infinity, spacing: .minutes(5), in: .testing)
         
-        #expect(oneWeekLater.addingTimeInterval(-300) == giveUpDate)
+        #expect((oneWeekLater + .minutes(-5)) == giveUpDate)
     }
     
     
@@ -428,11 +428,10 @@ struct GiveUpDateTest {
     @Test(arguments: PromptInterval.allCases)
     func storeKitWaitIsTheSameForEveryInterval(interval: PromptInterval) throws {
         let since = try Date.noon(year: 2026, month: 9, day: 1)
-        let wait = StoreKitPurchaseAction.storeKitPurchase.maxTimeToCheckPendingTransactions(whenPromptAppears: interval)
+        let wait = StoreKitPaymentHandler.storeKitPurchase.maxTimeToCheckPendingTransactions(whenPromptAppears: interval)
         
-        let giveUpDate = interval.giveUpDate(since: since, maxDuration: wait, spacing: 300, in: .testing)
+        let giveUpDate = interval.giveUpDate(since: since, maxDuration: wait, spacing: .minutes(5), in: .testing)
         
-        #expect(48 * 60 * 60 == wait)
-        #expect(since.addingTimeInterval(wait) == giveUpDate)
+        #expect((since + wait) == giveUpDate)
     }
 }
