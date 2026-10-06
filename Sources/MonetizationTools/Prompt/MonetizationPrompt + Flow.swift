@@ -14,9 +14,9 @@ public extension MonetizationPrompt {
     
     /// The things a person can do about a monetization prompt, handed to the content you put in it.
     ///
-    /// Every button in a prompt calls one of these three, and nothing else about the prompt needs your code:
+    /// Every button in a prompt calls **one** of these three:
     ///
-    /// - `present()` when they want what the prompt offers
+    /// - ``present()`` when they want what the prompt offers
     /// - ``snooze()`` when they want to be asked again later
     /// - ``decline()`` when they never want to be asked again
     ///
@@ -45,6 +45,9 @@ public extension MonetizationPrompt {
         /// prompt's view is, so this is what lets a double tap start only one purchase.
         private let isPresenting: Binding<Bool>
         
+        /// Whether the prompt's controls should reject user input (e.g. the user just tapped "pay", so disable them all to avoid double-taps or accidental dismissal)
+        private let disablePrompt: Binding<Bool>
+        
         /// The status message shown in place of the prompt's content, or `nil` to show the content
         private let statusMessage: Binding<PromptStatusMessage?>
         
@@ -59,21 +62,26 @@ public extension MonetizationPrompt {
         ///   - store:         Where this prompt's state is kept
         ///   - environment:   The environment of the view which shows the prompt
         ///   - isShowing:     Whether the prompt is on screen
+        ///   - disablePrompt: Whether the prompt's controls should reject user input (e.g. the user just tapped "pay", so disable them all to avoid double-taps or accidental dismissal)
         ///   - isPresenting:  Whether a presentation is currently running
         ///   - statusMessage: The status message shown in place of the prompt's content, or `nil` to show the content
         ///   - limiter:       Keeps attempts and checks for this prompt to one at a time, and spaces checks apart
-        internal init(descriptor: MonetizationPrompt.Descriptor,
-                      store: PromptStore?,
-                      environment: EnvironmentValues,
-                      isShowing: Binding<Bool>,
-                      isPresenting: Binding<Bool>,
-                      statusMessage: Binding<PromptStatusMessage?>,
-                      limiter: PendingCheckLimiter) {
+        internal init(
+            descriptor: MonetizationPrompt.Descriptor,
+            store: PromptStore?,
+            environment: EnvironmentValues,
+            isShowing: Binding<Bool>,
+            disablePrompt: Binding<Bool>,
+            isPresenting: Binding<Bool>,
+            statusMessage: Binding<PromptStatusMessage?>,
+            limiter: PendingCheckLimiter,
+        ) {
             self.descriptor = descriptor
             self.store = store
             self.environment = environment
             self.isShowing = isShowing
             self.isPresenting = isPresenting
+            self.disablePrompt = disablePrompt
             self.statusMessage = statusMessage
             self.limiter = limiter
         }
@@ -82,36 +90,39 @@ public extension MonetizationPrompt {
 
 
 
-// MARK: - What a person can do
+// MARK: - API
 
 public extension MonetizationPrompt.Flow {
     
-    /// Gives the person what the prompt offers, like a purchase sheet.
+    /// The user indicated they want to pay.
     ///
-    /// Call this from the button they tap to accept. It's `async`, so call it from a `Task`, or call the non-throwing
-    /// version of this instead if the caller doesn't need to react to failure. It returns once they've finished with
-    /// whatever it showed, or once whatever it's waiting on has been recorded.
+    /// This presents the user-facing payment flow, like a purchase sheet.
     ///
-    /// - If they complete it, the prompt goes away and never shows again.
-    /// - If it's still waiting on something else, like a parent's approval, the prompt's content is replaced by a short
-    ///   status message. On later appearances the prompt is hidden, and the package keeps asking the action for the
-    ///   result. A success retires the prompt. A failure, or the package giving up waiting, makes it come back later.
-    /// - If they back out, nothing changes and the prompt stays on screen.
-    /// - If it throws, nothing changes and the prompt stays on screen. Show the error if you like; what it is depends on
-    ///   the prompt's action.
+    /// Call this from your button which they tap to proceed with the payment.
+    /// It returns once the user is finished with the payment flow.
     ///
-    /// Calling this while a previous call, or a check for the same prompt, is still running does nothing, so a double tap
-    /// can't start two purchases.
+    /// If you want to ignore payment errors, you may omit `try await` from the call. Otherwise, you must `await` this so that any late-stage errors are reported.
+    ///
+    /// If an error occurs which prevents a successful payment, nothing changes and the prompt stays on screen. The exact error depends on the payment handler you choose for the prompt's description. You may reflect the error in your UI if you like.
+    ///
+    /// Calling this while a previous call (or a check for the same prompt) is still running does nothing, so a double tap can't start two purchases.
     func present() async throws {
         try await performPresent()
     }
     
     
-    /// Gives the person what the prompt offers, without `Task` or `try` at the call site.
+    /// The user indicated they want to pay.
     ///
-    /// Starts the same work as the throwing version and returns immediately without waiting for it. A failure is logged
-    /// as a warning and otherwise dropped; use the throwing version instead if the caller needs to know when something
-    /// goes wrong.
+    /// This presents the user-facing payment flow, like a purchase sheet.
+    ///
+    /// Call this from your button which they tap to proceed with the payment.
+    /// It returns once the user is finished with the payment flow.
+    ///
+    /// If you want to ignore payment errors, you may omit `try await` from the call. Otherwise, you must `await` this so that any late-stage errors are reported.
+    ///
+    /// If an error occurs which prevents a successful payment, nothing changes and the prompt stays on screen. The exact error depends on the payment handler you choose for the prompt's description. You may reflect the error in your UI if you like.
+    ///
+    /// Calling this while a previous call (or a check for the same prompt) is still running does nothing, so a double tap can't start two purchases.
     func present() {
         Task {
             do {
@@ -124,16 +135,18 @@ public extension MonetizationPrompt.Flow {
     }
     
     
-    /// Hides the prompt for now, and starts a new wait of one full interval before it can show again.
+    /// Hides the prompt for now
     ///
-    /// Call this from the button they tap to say "later".
+    /// After one full interval, the prompt will appear again when appropriate. See ``MonetizationPrompt/Descriptor/interval`` for details.
+    ///
+    /// Call this from the button the user taps to say "later"/"dismiss".
     func snooze() {
         store?.snooze(descriptor)
         isShowing.wrappedValue = false
     }
     
     
-    /// Hides the prompt for good. It never shows again, in any app which shares its scope.
+    /// Hides the prompt forever. It never shows again, in any app in-scope.
     ///
     /// Call this from the button they tap to say "never".
     func decline() {

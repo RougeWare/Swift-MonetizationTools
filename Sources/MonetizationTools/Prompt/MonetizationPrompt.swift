@@ -9,11 +9,11 @@ import SwiftUI
 
 
 
-/// A voluntary, dismissable prompt for payment.
+/// A voluntary, dismissable request for payment.
 ///
-/// This prompt will automatically show only as its descriptor allows, and never inserts itself under the user's finger.
+/// This prompt will automatically show as described by its descriptor, and never moves UI under the user's finger.
 ///
-/// Initialize this in your SwiftUI view, giving it a descriptor and the view content you want in it.
+/// Initialize this in your SwiftUI view, giving it a descriptor and whatever view content you want in it.
 /// This will decide when they're on screen, taking into account everything required by the descriptor and what actions the user has taken in the past.
 ///
 /// ```swift
@@ -47,29 +47,36 @@ public struct MonetizationPrompt: View {
     private let content: (Flow) -> AnyView
     
     /// This styles the prompt
-    @Environment(\.monetizationPromptStyle) private var style
+    @Environment(\.monetizationPromptStyle)
+    private var style
     
     /// Whether the prompt is currently added to the view hierarchy
-    @State private var isShowing = false
+    @State
+    private var isShowing = false
     
     /// Whether the flow's `present()` is currently running. It lives here because the flow is remade each time this
     /// view is.
-    @State private var isPresenting = false
+    @State
+    private var isPresenting = false
     
     /// The status message shown in place of the prompt's content, or `nil` to show the content. It's cleared each time
     /// this view appears, so a status message only ever shows during the appearance where the attempt went pending.
-    @State private var statusMessage: PromptStatusMessage? = nil
+    @State
+    private var statusMessage: PromptStatusMessage? = nil
     
     /// The height of the first status message shown during this appearance. Later status messages are laid out at this
     /// height and clipped, so swapping one for another never moves anything around them.
-    @State private var statusHeight: CGFloat? = nil
+    @State
+    private var statusHeight: CGFloat? = nil
     
     /// The environment of this view, which the flow passes to the prompt's action
-    @Environment(\.self) private var environment
+    @Environment(\.self)
+    private var environment
     
     #if DEBUG
     /// The dev's binding from ``debug(monetizationPrompt:_:)``, or `nil` when none is attached
-    @Environment(\.monetizationPromptDebugIsShowing) private var debugIsShowingOverride
+    @Environment(\.monetizationPromptDebugIsShowing)
+    private var debugIsShowingOverride
     #endif
     
     
