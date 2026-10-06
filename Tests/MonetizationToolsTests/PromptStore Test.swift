@@ -50,7 +50,7 @@ struct PromptStoreTest {
             
             let decision = store.check(descriptor(), at: now, in: .testing)
             
-            #expect(PromptDecision.hide == decision)
+            #expect(PromptLoadAction.hide == decision)
             #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == store.lookUpState(for: "com.example.test").recordedState)
         }
     }
@@ -65,8 +65,8 @@ struct PromptStoreTest {
             let dueDate = try Date.noon(year: 2026, month: 10, day: 20)
             let later = try Date.noon(year: 2026, month: 12, day: 25)
             
-            #expect(PromptDecision.show == store.check(descriptor(), at: dueDate, in: .testing))
-            #expect(PromptDecision.show == store.check(descriptor(), at: later, in: .testing))
+            #expect(PromptLoadAction.show == store.check(descriptor(), at: dueDate, in: .testing))
+            #expect(PromptLoadAction.show == store.check(descriptor(), at: later, in: .testing))
         }
     }
     
@@ -80,8 +80,8 @@ struct PromptStoreTest {
             let snoozedAt = try Date.noon(year: 2026, month: 10, day: 25)
             store.snooze(descriptor(), at: snoozedAt, in: .testing)
             
-            #expect(PromptDecision.hide == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 24), in: .testing))
-            #expect(PromptDecision.show == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 25), in: .testing))
+            #expect(PromptLoadAction.hide == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 24), in: .testing))
+            #expect(PromptLoadAction.show == store.check(descriptor(), at: try Date.noon(year: 2026, month: 11, day: 25), in: .testing))
         }
     }
     
@@ -110,7 +110,7 @@ struct PromptStoreTest {
             
             #expect("{\"state\":\"done\"}" == defaults.string(forKey: PromptStore.key(for: "com.example.test")))
             let noon21260101 = try Date.noon(year: 2126, month: 1, day: 1)
-            #expect(PromptDecision.hide == store.check(descriptor(), at: noon21260101, in: .testing))
+            #expect(PromptLoadAction.hide == store.check(descriptor(), at: noon21260101, in: .testing))
         }
     }
     
@@ -123,7 +123,7 @@ struct PromptStoreTest {
             
             store.persist(.pending(interval: .monthly, since: try Date.noon(year: 2026, month: 10, day: 20)), for: "com.example.test")
             
-            #expect(PromptDecision.checkPending == store.check(descriptor(), at: try Date.noon(year: 2126, month: 1, day: 1), in: .testing))
+            #expect(PromptLoadAction.checkPending == store.check(descriptor(), at: try Date.noon(year: 2126, month: 1, day: 1), in: .testing))
         }
     }
     
@@ -175,7 +175,7 @@ struct PromptStoreTest {
             
             #expect(store.lookUpState(for: "com.example.test").isUnreadable)
             let noon21260101 = try Date.noon(year: 2126, month: 1, day: 1)
-            #expect(PromptDecision.hide == store.check(descriptor(), at: noon21260101, in: .testing))
+            #expect(PromptLoadAction.hide == store.check(descriptor(), at: noon21260101, in: .testing))
         }
     }
     
@@ -242,7 +242,7 @@ struct PromptStoreTest {
             let decision = store.check(descriptor(atMost: .monthly), at: try Date.noon(year: 2026, month: 10, day: 1), in: .testing)
             
             let expectedNextEligible = try Date.noon(year: 2026, month: 11, day: 1)
-            #expect(PromptDecision.hide == decision)
+            #expect(PromptLoadAction.hide == decision)
             #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == store.lookUpState(for: "com.example.test").recordedState)
         }
     }

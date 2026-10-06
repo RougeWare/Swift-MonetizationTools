@@ -36,7 +36,7 @@ struct MonetizationPromptFlowTest {
     }
     
     
-    /// Makes a flow which acts on the given state and store, and runs the given action
+    /// Makes a flow which acts on the given state and store, and runs the given paymentHandler
     private func flow(running action: StubAction,
                        store: PromptStore,
                        state: ViewState,
@@ -46,6 +46,7 @@ struct MonetizationPromptFlowTest {
             store: store,
             environment: EnvironmentValues(),
             isShowing: Binding(get: { state.isShowing }, set: { state.isShowing = $0 }),
+            disablePrompt: .constant(false),
             isPresenting: Binding(get: { state.isPresenting }, set: { state.isPresenting = $0 }),
             statusMessage: Binding(get: { state.statusMessage }, set: { state.statusMessage = $0 }),
             limiter: limiter
@@ -61,7 +62,7 @@ struct MonetizationPromptFlowTest {
     
     // MARK: Attempts
     
-    /// The attempt is stored as pending before the action runs, so a crash during it leaves a state that says so
+    /// The attempt is stored as pending before the paymentHandler runs, so a crash during it leaves a state that says so
     @Test func stateIsPendingWhileTheActionRuns() async throws {
         try await withEphemeralDefaults { defaults in
             let store = PromptStore(defaults: defaults)
@@ -69,12 +70,12 @@ struct MonetizationPromptFlowTest {
             let counter = StubAction.Counter()
             try storeDuePrompt(in: store)
             var stateDuringPerform: PromptState? = nil
-            counter.onPerform = { stateDuringPerform = store.lookUpState(for: Self.identifier).recordedState }
+            counter.onLaunch = { stateDuringPerform = store.lookUpState(for: Self.identifier).recordedState }
             
             try await flow(running: StubAction(.success(.abandoned), counter: counter), store: store, state: state).present()
             
-            guard case .some(.pending(interval: let interval, since: _)) = stateDuringPerform else {
-                Issue.record("The state should be pending while the action runs, but it was \(String(describing: stateDuringPerform))")
+            guard case .some(.resolving(interval: let interval, since: _)) = stateDuringPerform else {
+                Issue.record("The state should be pending while the paymentHandler runs, but it was \(String(describing: stateDuringPerform))")
                 return
             }
             #expect(PromptInterval.weekly == interval)
@@ -90,15 +91,15 @@ struct MonetizationPromptFlowTest {
             let counter = StubAction.Counter()
             try storeDuePrompt(in: store)
             var stateDuringAcknowledgment: PromptState? = nil
-            counter.onAcknowledgeSuccess = { stateDuringAcknowledgment = store.lookUpState(for: Self.identifier).recordedState }
+            counter.onHandleSuccess = { stateDuringAcknowledgment = store.lookUpState(for: Self.identifier).recordedState }
             
             try await flow(running: StubAction(.success(.succeeded), counter: counter), store: store, state: state).present()
             
             guard case .some(.resolving) = stateDuringAcknowledgment else {
-                Issue.record("The state should be resolving during the acknowledgment, but it was \(String(describing: stateDuringAcknowledgment))")
+                Issue.record("The state should be resolving during success handling, but it was \(String(describing: stateDuringAcknowledgment))")
                 return
             }
-            #expect([.perform, .acknowledgeSuccess] == counter.events)
+            #expect([.launch, .handleSuccess] == counter.events)
             #expect(false == state.isShowing)
             #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
         }
@@ -115,7 +116,7 @@ struct MonetizationPromptFlowTest {
             try await flow(running: StubAction(.success(.abandoned)), store: store, state: state).present()
             
             #expect(state.isShowing)
-            #expect(PromptDecision.show == store.check(MonetizationPrompt.Descriptor(Self.identifier, atMost: .weekly, action: StubAction())))
+            #expect(PromptLoadAction.show == store.check(MonetizationPrompt.Descriptor(Self.identifier, atMost: .weekly, action: StubAction())))
         }
     }
     
@@ -134,7 +135,7 @@ struct MonetizationPromptFlowTest {
             
             #expect(state.isShowing)
             #expect(false == state.isPresenting)
-            #expect(PromptDecision.show == store.check(MonetizationPrompt.Descriptor(Self.identifier, atMost: .weekly, action: StubAction())))
+            #expect(PromptLoadAction.show == store.check(MonetizationPrompt.Descriptor(Self.identifier, atMost: .weekly, action: StubAction())))
         }
     }
     
@@ -245,7 +246,7 @@ struct MonetizationPromptFlowTest {
             
             await flow(running: StubAction(pendingResult: .succeeded, counter: counter), store: store, state: state).checkPending()
             
-            #expect([.checkPending, .acknowledgeSuccess] == counter.events)
+            #expect([.checkPending, .handleSuccess] == counter.events)
             #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
         }
     }
@@ -312,7 +313,7 @@ struct MonetizationPromptFlowTest {
             await flow(running: StubAction(pendingResult: .abandoned, counter: counter), store: store, state: state).checkPending()
             
             #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
-            #expect(false == counter.events.contains(.acknowledgeSuccess))
+            #expect(false == counter.events.contains(.handleSuccess))
         }
     }
     
@@ -334,7 +335,7 @@ struct MonetizationPromptFlowTest {
     }
     
     
-    /// An interrupted success is finished on the next appearance, without asking the action again what happened
+    /// An interrupted success is finished on the next appearance, without asking the paymentHandler again what happened
     @Test func resolvingIsFinishedWithoutCheckingAgain() async throws {
         try await withEphemeralDefaults { defaults in
             let store = PromptStore(defaults: defaults)
@@ -344,13 +345,13 @@ struct MonetizationPromptFlowTest {
             
             await flow(running: StubAction(counter: counter), store: store, state: state).finishResolving()
             
-            #expect([.acknowledgeSuccess] == counter.events)
+            #expect([.handleSuccess] == counter.events)
             #expect(PromptState.done == store.lookUpState(for: Self.identifier).recordedState)
         }
     }
     
     
-    /// An action which doesn't implement checking reports that it doesn't know, and acknowledging does nothing
+    /// An paymentHandler which doesn't implement checking reports that it doesn't know, and acknowledging does nothing
     @Test func defaultsDontKnowAndDoNothing() async {
         let action = MinimalPaymentHandler()
         

@@ -162,7 +162,7 @@ private extension StoreKitPaymentHandler {
     
     /// The product's identifier in App Store Connect, for the prompt with the given identifier
     ///
-    /// - Parameter identifier: Identifies the prompt this action belongs to
+    /// - Parameter identifier: Identifies the prompt this paymentHandler belongs to
     func appStoreProductId(for identifier: MonetizationPrompt.Identifier) -> String {
         productId ?? identifier.withoutTypeSafety()
     }
@@ -180,7 +180,7 @@ public extension PaymentHandler where Self == StoreKitPaymentHandler {
     /// ```swift
     /// static let licensePurchase = Self(
     ///     "com.example.licensePurchase",
-    ///     action: .storeKitPurchase
+    ///     paymentHandler: .storeKitPurchase
     /// )
     /// ```
     ///

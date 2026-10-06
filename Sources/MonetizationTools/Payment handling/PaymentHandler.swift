@@ -34,7 +34,7 @@ import SimpleLogging
 /// - Attention: Payment handlers are the most important code to get right, since they handle the actual money changing hands. **Spend extra time and effort ensuring your code is bulletproof!**
 public protocol PaymentHandler: Sendable {
     
-    /// What happened when this action ran. See ``PaymentOutcome``.
+    /// What happened when this paymentHandler ran. See ``PaymentOutcome``.
     typealias Outcome = PaymentOutcome
     
     
@@ -53,7 +53,7 @@ public protocol PaymentHandler: Sendable {
     ///   - identifier:  Identifies the prompt whose payment to make
     ///   - environment: The current SwiftUI environment in which this is launching
     ///
-    /// - Returns: A description of the user's final action in this payment flow, as a value describing their final action:
+    /// - Returns: A description of the user's final paymentHandler in this payment flow, as a value describing their final paymentHandler:
     ///     - ``PaymentOutcome/succeeded`` if the user completed the payment
     ///     - ``PaymentOutcome/abandoned`` if the user chose to not complete the payment, or the payment failed
     ///     - ``PaymentOutcome/pending`` if the user chose to proceed with the payment but something external must happen first, such as bank or parental approval. ``checkPending(id:)`` will be periodically called to check back and discover whether the payment has yet succeeded or been abandoned.
@@ -134,7 +134,7 @@ public enum PaymentOutcome: Sendable, Hashable {
     /// Perhaps the payment was declined, or the user backed out, or the service no longer exists, etc..
     case abandoned
     
-    /// It's unclear what the outcome of the action was.
+    /// It's unclear what the outcome of the paymentHandler was.
     ///
     /// Return this from ``PaymentHandler/checkPending(id:)`` or ``PaymentHandler/launch(id:in:)`` if you're unsure what the final state of the transaction might've been (for example: an error occurred, or an authoritative source is returning ambiguous information).
     static var currentStateUnknown: Self { .pending } // Currently, we just use `pending` to fill this need, but we might make this its own case in the future.
@@ -147,7 +147,7 @@ public enum PaymentOutcome: Sendable, Hashable {
 public extension PaymentHandler {
     
     func checkPending(id identifier: MonetizationPrompt.Identifier) async -> Outcome {
-        log(warning: "The action for the prompt \(identifier) can't check on a pending attempt, so its result can never be known")
+        log(warning: "The paymentHandler for the prompt \(identifier) can't check on a pending attempt, so its result can never be known")
         return .currentStateUnknown
     }
     

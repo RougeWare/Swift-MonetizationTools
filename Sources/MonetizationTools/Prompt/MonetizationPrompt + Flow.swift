@@ -129,7 +129,7 @@ public extension MonetizationPrompt.Flow {
                 try await performPresent()
             }
             catch {
-                log(warning: "A monetization prompt's action failed: \(error)")
+                log(warning: "A monetization prompt's payment handler failed: \(error)")
             }
         }
     }
@@ -148,21 +148,20 @@ public extension MonetizationPrompt.Flow {
     
     /// Hides the prompt forever. It never shows again, in any app in-scope.
     ///
-    /// Call this from the button they tap to say "never".
+    /// Call this from the button they tap to say "never ask me again".
     func decline() {
         retireAndHide()
     }
     
     
     #if DEBUG
-    /// Erases this prompt's stored state, so its next check behaves like the first one after a fresh install. It also
-    /// clears the spacing between checks for this prompt.
+    /// Permanently deletes this prompt's stored state, so it behaves like a fresh install.
     ///
-    /// It doesn't hide the prompt. Call it from a button, not directly in the prompt's content, since content is built
-    /// again each time the view updates.
+    /// Call this from a button in the prompt's UI, just like the other methods.
     ///
-    /// This exists only in debug builds. Code which uses it has to be wrapped in `#if DEBUG`, so it can't reach a
-    /// release build by accident.
+    /// - Note: This doesn't hide the prompt; the prompt will behave identical to how it would at first-launch.
+    ///
+    /// - Note: This exists only for debugging during development.
     func reset() {
         store?.reset(descriptor.identifier)
         limiter.forget(limiterKey)
@@ -176,8 +175,9 @@ public extension MonetizationPrompt.Flow {
 
 internal extension MonetizationPrompt.Flow {
     
-    /// Asks the action for the result of a pending attempt, and records what it says. Does nothing if an attempt or a
-    /// check for this prompt is running, or the last check was too recent.
+    /// Checks with the payment handler to see how a pending payment is going.
+    ///
+    /// If another check for this flow's identifier is already running, or ran recently, then this returns immediately without doing anything.
     func checkPending() async {
         let key = limiterKey
         guard limiter.begin(key, at: .now, isCheck: true) else {
@@ -186,7 +186,7 @@ internal extension MonetizationPrompt.Flow {
         
         defer { limiter.end(key, at: .now, isCheck: true) }
         
-        let outcome = await descriptor.action.checkPending(id: descriptor.identifier)
+        let outcome = await descriptor.paymentHandler.checkPending(id: descriptor.identifier)
         
         guard let store,
               case .some(.success(.pending(interval: let interval, since: let since))) = store.lookUpState(for: descriptor.identifier)
@@ -204,7 +204,7 @@ internal extension MonetizationPrompt.Flow {
         case .pending:
             let giveUpDate = interval.giveUpDate(
                 since: since,
-                maxDuration: descriptor.action.maxTimeToCheckPendingTransactions(whenPromptAppears: interval),
+                maxDuration: descriptor.paymentHandler.maxTimeToCheckPendingTransactions(whenPromptAppears: interval),
                 spacing: PendingCheckLimiter.spacing
             )
             
@@ -215,7 +215,7 @@ internal extension MonetizationPrompt.Flow {
     }
     
     
-    /// Finishes recording a success which was interrupted: calls the action's `handleSuccess`, then stores `.done`.
+    /// Finishes recording a success which was interrupted: calls the payment handler's `handleSuccess`, then stores `.done`.
     func finishResolving() async {
         let key = limiterKey
         guard limiter.begin(key, at: .now, isCheck: false) else {
@@ -230,7 +230,7 @@ internal extension MonetizationPrompt.Flow {
             return
         }
         
-        await descriptor.action.handleSuccess(id: descriptor.identifier)
+        await descriptor.paymentHandler.handleSuccess(id: descriptor.identifier)
         store.retire(descriptor.identifier)
     }
 }
@@ -241,7 +241,7 @@ internal extension MonetizationPrompt.Flow {
 
 private extension MonetizationPrompt.Flow {
     
-    /// This prompt's key in the limiter
+    /// Allows the limiter to uniquely identify this flow
     var limiterKey: String {
         PendingCheckLimiter.key(for: descriptor.identifier, scope: descriptor.scope)
     }
@@ -262,7 +262,7 @@ private extension MonetizationPrompt.Flow {
         
         let outcome: PaymentOutcome
         do {
-            outcome = try await attempt()
+            outcome = try await launchPaymentHandler()
         }
         catch {
             endAttempt(key)
@@ -279,16 +279,18 @@ private extension MonetizationPrompt.Flow {
     }
     
     
-    /// Runs one attempt: stores that it's pending, runs the action, and records what the action reported.
+    /// Launches the payment handler.
     ///
-    /// - Returns: What the action reported
-    /// - Throws: Whatever the action threw, after putting the prompt back to due
-    func attempt() async throws -> PaymentOutcome {
+    /// This first records a prompt state noting that an attempt is starting, then tells the handler to launch. This way crashes don't put the user in an unexpected state. See ``PersistedPromptState/startingAttempt(declaring:at:)`` for more detail.
+    ///
+    /// - Returns: What the payment handler reported
+    /// - Throws: Whatever the payment handler threw, after putting the prompt back to due
+    func launchPaymentHandler() async throws -> PaymentOutcome {
         store?.update(descriptor.identifier) { $0.startingAttempt(declaring: descriptor.interval, at: .now) }
         
         let outcome: PaymentOutcome
         do {
-            outcome = try await descriptor.action.launch(id: descriptor.identifier, in: environment)
+            outcome = try await descriptor.paymentHandler.launch(id: descriptor.identifier, in: environment)
         }
         catch {
             store?.update(descriptor.identifier) { $0.cancellingAttempt(at: .now) }
@@ -300,6 +302,7 @@ private extension MonetizationPrompt.Flow {
             await recordSuccess()
             
         case .pending:
+            store?.update(descriptor.identifier) { _ in .pending(interval: descriptor.interval, since: .now) }
             statusMessage.wrappedValue = .pending
             
         case .abandoned:
@@ -319,11 +322,11 @@ private extension MonetizationPrompt.Flow {
     }
     
     
-    /// Records a success: stores `.resolving`, calls the action's `handleSuccess`, stores `.done`, then hides the
+    /// Records a success: stores `.resolving`, calls the payment handler's `handleSuccess`, stores `.done`, then hides the
     /// prompt. If the pending status message is on screen, it shows the completed message instead of hiding.
     func recordSuccess() async {
         store?.update(descriptor.identifier) { $0.recordingSuccess() }
-        await descriptor.action.handleSuccess(id: descriptor.identifier)
+        await descriptor.paymentHandler.handleSuccess(id: descriptor.identifier)
         store?.retire(descriptor.identifier)
         
         if PromptStatusMessage.pending == statusMessage.wrappedValue {

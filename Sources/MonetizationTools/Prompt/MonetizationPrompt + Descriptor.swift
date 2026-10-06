@@ -20,7 +20,7 @@ public extension MonetizationPrompt {
     ///     static let licensePurchase = Self(
     ///         "com.example.licensePurchaseNotice",
     ///         atMost: .monthly,
-    ///         action: .storeKitPurchase
+    ///         paymentHandler: .storeKitPurchase
     ///     )
     /// }
     /// ```
@@ -46,7 +46,7 @@ public extension MonetizationPrompt {
         public let scope: MonetizationPrompt.Scope
         
         /// What happens when someone takes this prompt up on its offer
-        public let action: any PaymentHandler
+        public let paymentHandler: any PaymentHandler
         
         
         /// - Parameters:
@@ -56,10 +56,10 @@ public extension MonetizationPrompt {
         ///                 that. Defaults to ``PromptInterval/monthly``.
         ///   - scope:      _optional_ - How far this prompt's memory reaches. Defaults to
         ///                 ``MonetizationPrompt/Scope/perApp``.
-        ///   - action:     What happens when someone takes this prompt up on its offer. This runs when someone taps
+        ///   - paymentHandler:     What happens when someone takes this prompt up on its offer. This runs when someone taps
         ///                 into your own button and calls the flow's `present()` — before whatever the
-        ///                 action itself shows. For ``StoreKitPurchaseAction``, that means before Apple's own
-        ///                 payment sheet appears, since presenting that sheet is what this action does.
+        ///                 paymentHandler itself shows. For ``StoreKitPurchaseAction``, that means before Apple's own
+        ///                 payment sheet appears, since presenting that sheet is what this paymentHandler does.
         public init(
             _ identifier: MonetizationPrompt.Identifier,
             atMost interval: PromptInterval = .monthly,
@@ -69,7 +69,7 @@ public extension MonetizationPrompt {
             self.identifier = identifier
             self.interval = interval
             self.scope = scope
-            self.action = action
+            self.paymentHandler = action
         }
     }
 }

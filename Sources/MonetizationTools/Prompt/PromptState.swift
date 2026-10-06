@@ -29,7 +29,7 @@ internal enum PromptState: Sendable, Hashable {
     case scheduled(interval: PromptInterval, nextEligible: Date)
     
     /// An attempt started, and its result isn't known yet. The prompt stays hidden, and its schedule is ignored, while
-    /// the package asks the action for the result. `interval` is the locked-in interval, kept so the prompt can be
+    /// the package asks the paymentHandler for the result. `interval` is the locked-in interval, kept so the prompt can be
     /// scheduled again if the attempt is abandoned. `since` is when the attempt started. The give-up time is counted
     /// from it.
     ///
@@ -41,7 +41,7 @@ internal enum PromptState: Sendable, Hashable {
     ///   - since:    When the attempt started
     case pending(interval: PromptInterval, since: Date)
     
-    /// An attempt succeeded, and the package is in the middle of recording that. It's stored before the action's
+    /// An attempt succeeded, and the package is in the middle of recording that. It's stored before the paymentHandler's
     /// `handleSuccess` runs, and replaced by `.done` after. If the app dies in between, the next appearance repeats
     /// `handleSuccess` and stores `.done`.
     ///
@@ -158,14 +158,14 @@ extension PromptState: Codable {
 ///
 /// The unreadable case has to behave differently from never-checked: the first is someone meeting the prompt for the
 /// first time; the second is a prompt which has to stay quiet, since nobody knows what that person already said to it.
-internal typealias PromptStateLookup = Result<PromptState, any Error>?
+internal typealias PersistedPromptState = Result<PromptState, any Error>?
 
 
 
 // MARK: - Decisions
 
-/// What a prompt's view should do when it appears.
-internal enum PromptDecision: Sendable, Hashable {
+/// What a prompt's view should do when it's added to a view hierarchy.
+internal enum PromptLoadAction: Sendable, Hashable {
     
     /// The prompt is due. Show its content.
     case show
@@ -173,7 +173,7 @@ internal enum PromptDecision: Sendable, Hashable {
     /// The prompt isn't due, is retired, or can't be read. Show nothing.
     case hide
     
-    /// An attempt is pending. Show nothing, and ask the action for the result.
+    /// An attempt is pending. Show nothing, and ask the payment handler for the result.
     case checkPending
     
     /// A success is being recorded. Show nothing, and finish recording it.
@@ -184,7 +184,7 @@ internal enum PromptDecision: Sendable, Hashable {
 
 // MARK: - Scheduling
 
-internal extension PromptStateLookup {
+internal extension PersistedPromptState {
     
     /// Decides what a prompt's view does when it appears, and whether this check needs to be remembered.
     ///
@@ -204,7 +204,7 @@ internal extension PromptStateLookup {
     func check(declaring declaredInterval: PromptInterval,
                at now: Date,
                in calendar: Calendar = .current)
-    -> (decision: PromptDecision, stateToRemember: PromptState?) {
+    -> (decision: PromptLoadAction, stateToRemember: PromptState?) {
         switch self {
         case .none:
             let firstState = PromptState.scheduled(
@@ -213,7 +213,7 @@ internal extension PromptStateLookup {
             )
             return (decision: .hide, stateToRemember: firstState)
             
-        case .some(.success(.scheduled(interval: _, nextEligible: let nextEligible))):
+        case .success(.scheduled(interval: _, nextEligible: let nextEligible)):
             if nextEligible <= now {
                 return (decision: .show, stateToRemember: nil)
             }
@@ -221,16 +221,16 @@ internal extension PromptStateLookup {
                 return (decision: .hide, stateToRemember: nil)
             }
             
-        case .some(.success(.pending)):
+        case .success(.pending):
             return (decision: .checkPending, stateToRemember: nil)
             
-        case .some(.success(.resolving)):
+        case .success(.resolving):
             return (decision: .finishResolving, stateToRemember: nil)
             
-        case .some(.success(.done)):
+        case .success(.done):
             return (decision: .hide, stateToRemember: nil)
             
-        case .some(.failure):
+        case .failure:
             return (decision: .hide, stateToRemember: nil)
         }
     }
@@ -286,37 +286,29 @@ internal extension PromptStateLookup {
 
 // MARK: - Attempts
 
-internal extension PromptStateLookup {
+internal extension PersistedPromptState {
     
-    /// The state to store just before an attempt starts, or `nil` when nothing should be stored.
+    /// The state to store just before an attempt starts, or `nil` when what's stored shouldn't change.
     ///
-    /// A scheduled prompt becomes pending, keeping its locked-in interval. A prompt with nothing stored becomes pending
-    /// with the declared interval; that only happens when the debug override showed the prompt. Every other state is left
-    /// alone, so a retired prompt is never brought back.
+    /// A scheduled prompt becomes resolving since now, keeping its locked-in interval. A prompt with nothing stored becomes resolving since now, with the declared interval. Every other state is leftuntouched, so a retired prompt is never brought back.
     ///
     /// - Parameters:
     ///   - declaredInterval: The interval the prompt's descriptor declares. Only used if nothing is stored.
     ///   - now:              The moment the attempt starts
     ///
-    /// - Returns: The state to store, or `nil`
+    /// - Returns: The new state to store, or `nil` if the state shouldn't change
     func startingAttempt(declaring declaredInterval: PromptInterval, at now: Date) -> PromptState? {
         switch self {
         case .none:
-            return .pending(interval: declaredInterval, since: now)
+            return .resolving(interval: declaredInterval, since: now)
             
-        case .some(.success(.scheduled(interval: let interval, nextEligible: _))):
-            return .pending(interval: interval, since: now)
+        case .success(.scheduled(interval: let interval, nextEligible: _)):
+            return .resolving(interval: interval, since: now)
             
-        case .some(.success(.pending)):
-            return nil
-            
-        case .some(.success(.resolving)):
-            return nil
-            
-        case .some(.success(.done)):
-            return nil
-            
-        case .some(.failure):
+        case .success(.pending),
+                .success(.resolving),
+                .success(.done),
+                .failure(_):
             return nil
         }
     }
@@ -329,11 +321,17 @@ internal extension PromptStateLookup {
     ///
     /// - Returns: The state to store, or `nil`
     func cancellingAttempt(at now: Date) -> PromptState? {
-        guard case .some(.success(.pending(interval: let interval, since: _))) = self else {
+        switch self {
+        case .none,
+                .success(.scheduled(interval: _, nextEligible: _)),
+                .success(.resolving(interval: _, since: _)),
+                .success(.done),
+                .failure(_):
             return nil
+            
+        case .success(.pending(interval: let interval, since: _)):
+            return .scheduled(interval: interval, nextEligible: now)
         }
-        
-        return .scheduled(interval: interval, nextEligible: now)
     }
     
     
@@ -341,7 +339,7 @@ internal extension PromptStateLookup {
     ///
     /// - Returns: The state to store, or `nil`
     func recordingSuccess() -> PromptState? {
-        guard case .some(.success(.pending(interval: let interval, since: let since))) = self else {
+        guard case .success(.pending(interval: let interval, since: let since)) = self else {
             return nil
         }
         
@@ -358,7 +356,7 @@ internal extension PromptStateLookup {
     ///
     /// - Returns: The state to store, or `nil`
     func givingUp(at now: Date, in calendar: Calendar = .current) -> PromptState? {
-        guard case .some(.success(.pending(interval: let interval, since: _))) = self else {
+        guard case .success(.pending(interval: let interval, since: _)) = self else {
             return nil
         }
         
@@ -379,7 +377,7 @@ internal extension PromptInterval {
     ///
     /// - Parameters:
     ///   - attemptStartDate: When the attempt started
-    ///   - maxDuration:      How long the action wants to keep checking
+    ///   - maxDuration:      How long the paymentHandler wants to keep checking
     ///   - spacing:          The minimum time between two checks
     ///   - calendar:         _optional_ - The calendar which decides what "a month" means. Defaults to the current calendar.
     ///

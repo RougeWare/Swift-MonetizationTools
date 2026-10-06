@@ -59,7 +59,7 @@ func withEphemeralDefaults(_ body: @MainActor (UserDefaults) async throws -> Voi
 
 
 
-extension PromptStateLookup {
+extension PersistedPromptState {
     
     /// Whether nothing was stored
     var isNeverChecked: Bool {
@@ -110,10 +110,10 @@ extension PromptStateLookup {
 
 // MARK: - Actions
 
-/// A stand-in for a real action, which does whatever a test tells it to and records what it was asked to do
+/// A stand-in for a real paymentHandler, which does whatever a test tells it to and records what it was asked to do
 struct StubAction: PaymentHandler {
     
-    /// What happened when this action ran, for a test to choose
+    /// What happened when this paymentHandler ran, for a test to choose
     let result: Result<PaymentOutcome, StubError>
     
     /// What `checkPending` reports, for a test to choose
@@ -122,17 +122,17 @@ struct StubAction: PaymentHandler {
     /// How long to keep checking a pending attempt, or `nil` to use the protocol's default
     let maxCheckingTime: Duration?
     
-    /// Records each time this action is asked to do something
+    /// Records each time this paymentHandler is asked to do something
     let counter: Counter
     
     
     /// Makes a stub which finishes with the given results
     ///
     /// - Parameters:
-    ///   - result:          What running the action does. Defaults to succeeding.
+    ///   - result:          What running the paymentHandler does. Defaults to succeeding.
     ///   - pendingResult:   _optional_ - What `checkPending` reports. Defaults to `.currentStateUnknown`.
     ///   - maxCheckingTime: _optional_ - How long to keep checking a pending attempt. Defaults to the protocol's default.
-    ///   - counter:         _optional_ - Records what the action was asked. Defaults to a counter which nobody reads.
+    ///   - counter:         _optional_ - Records what the paymentHandler was asked. Defaults to a counter which nobody reads.
     @MainActor
     init(_ result: Result<PaymentOutcome, StubError> = .success(.succeeded),
          pendingResult: PaymentOutcome = .currentStateUnknown,
@@ -149,8 +149,8 @@ struct StubAction: PaymentHandler {
     func launch(id identifier: MonetizationPrompt.Identifier,
                 in environment: EnvironmentValues) async throws -> Outcome {
         counter.count += 1
-        counter.events.append(.perform)
-        counter.onPerform?()
+        counter.events.append(.launch)
+        counter.onLaunch?()
         await Task.yield()
         return try result.get()
     }
@@ -163,7 +163,7 @@ struct StubAction: PaymentHandler {
     
     
     func handleSuccess(id identifier: MonetizationPrompt.Identifier) async {
-        await counter.record(.acknowledgeSuccess)
+        await counter.record(.handleSuccess)
     }
     
     
@@ -176,36 +176,41 @@ struct StubAction: PaymentHandler {
     @MainActor
     final class Counter {
         
-        /// How many times the action's `launch` has run
+        /// How many times the paymentHandler's `launch` has run
         var count = 0
         
-        /// Everything the action was asked to do, in order
+        /// Everything the paymentHandler was asked to do, in order
         var events: [Event] = []
         
-        /// Runs inside `launch`, so a test can look at storage while the action is running
-        var onPerform: (@MainActor () -> Void)? = nil
+        /// Runs inside `launch`, so a test can look at storage while the paymentHandler is running
+        var onLaunch: (@MainActor () -> Void)? = nil
         
-        /// Runs inside `acknowledgeSuccess`, so a test can look at storage while the action is running
-        var onAcknowledgeSuccess: (@MainActor () -> Void)? = nil
+        /// Runs inside `handleSuccess`, so a test can look at storage while the paymentHandler is running
+        var onHandleSuccess: (@MainActor () -> Void)? = nil
         
         
         /// Records one request, and runs its hook if it has one
         ///
-        /// - Parameter event: What the action was asked to do
+        /// - Parameter event: What the paymentHandler was asked to do
         func record(_ event: Event) {
             events.append(event)
             
-            if Event.acknowledgeSuccess == event {
-                onAcknowledgeSuccess?()
+            switch event {
+            case .launch,
+                 .checkPending:
+                break
+                
+            case .handleSuccess:
+                onHandleSuccess?()
             }
         }
         
         
         /// One thing a ``StubAction`` can be asked to do
         enum Event: Equatable, Sendable {
-            case perform
+            case launch
             case checkPending
-            case acknowledgeSuccess
+            case handleSuccess
         }
     }
     
@@ -216,7 +221,7 @@ struct StubAction: PaymentHandler {
 
 
 
-/// An action which implements only `launch`, so tests can check the protocol's default implementations
+/// An paymentHandler which implements only `launch`, so tests can check the protocol's default implementations
 struct MinimalPaymentHandler: PaymentHandler {
     
     @MainActor

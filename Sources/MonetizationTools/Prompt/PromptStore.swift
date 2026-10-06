@@ -87,7 +87,7 @@ internal extension PromptStore {
     ///
     /// - Returns: `nil` when nothing is stored. Anything stored which isn't a readable state, of any type, is a
     ///            `.failure` and is logged.
-    func lookUpState(for id: MonetizationPrompt.Identifier) -> PromptStateLookup {
+    func lookUpState(for id: MonetizationPrompt.Identifier) -> PersistedPromptState {
         switch defaults.object(forKey: Self.key(for: id)) {
         case .none:
             return nil
@@ -145,7 +145,7 @@ internal extension PromptStore {
     func check(_ descriptor: MonetizationPrompt.Descriptor,
                at now: Date = .now,
                in calendar: Calendar = .current)
-    -> PromptDecision {
+    -> PromptLoadAction {
         let result = lookUpState(for: descriptor.identifier)
             .check(declaring: descriptor.interval, at: now, in: calendar)
         
@@ -168,7 +168,7 @@ internal extension PromptStore {
     /// - Returns: The state which was stored, or `nil` if nothing was
     @discardableResult
     func update(_ id: MonetizationPrompt.Identifier,
-                using transition: (PromptStateLookup) -> PromptState?)
+                using transition: (PersistedPromptState) -> PromptState?)
     -> PromptState? {
         guard let newState = transition(lookUpState(for: id)) else {
             return nil

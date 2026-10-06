@@ -112,9 +112,9 @@ struct PromptSchedulingTest {
     @Test func firstCheckIsNeverDue() throws {
         let now = try Date.noon(year: 2026, month: 9, day: 20)
         
-        let result = PromptStateLookup.none.check(declaring: .monthly, at: now, in: .testing)
+        let result = PersistedPromptState.none.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(PromptDecision.hide == result.decision)
+        #expect(PromptLoadAction.hide == result.decision)
     }
     
     
@@ -123,7 +123,7 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2026, month: 9, day: 20)
         let expectedNextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         
-        let result = PromptStateLookup.none.check(declaring: .monthly, at: now, in: .testing)
+        let result = PersistedPromptState.none.check(declaring: .monthly, at: now, in: .testing)
         
         #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == result.stateToRemember)
     }
@@ -133,11 +133,11 @@ struct PromptSchedulingTest {
     @Test func promptIsNotDueBeforeItsNextEligibleMoment() throws {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2026, month: 10, day: 19)
-        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
+        let reading = PersistedPromptState.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let result = reading.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(PromptDecision.hide == result.decision)
+        #expect(PromptLoadAction.hide == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -145,11 +145,11 @@ struct PromptSchedulingTest {
     /// The moment itself counts, so nobody waits longer than the interval
     @Test func promptIsDueAtExactlyItsNextEligibleMoment() throws {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
-        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
+        let reading = PersistedPromptState.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let result = reading.check(declaring: .monthly, at: nextEligible, in: .testing)
         
-        #expect(PromptDecision.show == result.decision)
+        #expect(PromptLoadAction.show == result.decision)
     }
     
     
@@ -158,11 +158,11 @@ struct PromptSchedulingTest {
     @Test func duePromptChangesNothing() throws {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2027, month: 3, day: 1)
-        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
+        let reading = PersistedPromptState.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let result = reading.check(declaring: .monthly, at: now, in: .testing)
         
-        #expect(PromptDecision.show == result.decision)
+        #expect(PromptLoadAction.show == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -172,9 +172,9 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
         
         let since = try Date.noon(year: 2026, month: 1, day: 1)
-        let result = PromptStateLookup.some(.success(.pending(interval: .weekly, since: since))).check(declaring: .weekly, at: now, in: .testing)
+        let result = PersistedPromptState.some(.success(.pending(interval: .weekly, since: since))).check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(PromptDecision.checkPending == result.decision)
+        #expect(PromptLoadAction.checkPending == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -183,9 +183,9 @@ struct PromptSchedulingTest {
     @Test func retiredPromptIsNeverDue() throws {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
         
-        let result = PromptStateLookup.some(.success(.done)).check(declaring: .weekly, at: now, in: .testing)
+        let result = PersistedPromptState.some(.success(.done)).check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(PromptDecision.hide == result.decision)
+        #expect(PromptLoadAction.hide == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -193,11 +193,11 @@ struct PromptSchedulingTest {
     /// When nobody knows what a person already said, the prompt stays quiet
     @Test func unreadablePromptIsNeverDue() throws {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
-        let reading = PromptStateLookup.some(.failure(StubAction.StubError()))
+        let reading = PersistedPromptState.some(.failure(StubAction.StubError()))
         
         let result = reading.check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(PromptDecision.hide == result.decision)
+        #expect(PromptLoadAction.hide == result.decision)
         #expect(nil == result.stateToRemember)
     }
     
@@ -207,7 +207,7 @@ struct PromptSchedulingTest {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         let expectedNextEligible = try Date.noon(year: 2026, month: 12, day: 3)
-        let reading = PromptStateLookup.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
+        let reading = PersistedPromptState.some(.success(.scheduled(interval: .monthly, nextEligible: nextEligible)))
         
         let snoozed = reading.snoozed(declaring: .monthly, at: now, in: .testing)
         
@@ -221,7 +221,7 @@ struct PromptSchedulingTest {
         let nextEligible = try Date.noon(year: 2026, month: 10, day: 20)
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         let expectedNextEligible = try Date.noon(year: 2026, month: 11, day: 10)
-        let reading = PromptStateLookup.some(.success(.scheduled(interval: .weekly, nextEligible: nextEligible)))
+        let reading = PersistedPromptState.some(.success(.scheduled(interval: .weekly, nextEligible: nextEligible)))
         
         let snoozed = reading.snoozed(declaring: .yearly, at: now, in: .testing)
         
@@ -234,7 +234,7 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         let expectedNextEligible = try Date.noon(year: 2026, month: 12, day: 3)
         
-        let snoozed = PromptStateLookup.none.snoozed(declaring: .monthly, at: now, in: .testing)
+        let snoozed = PersistedPromptState.none.snoozed(declaring: .monthly, at: now, in: .testing)
         
         #expect(PromptState.scheduled(interval: .monthly, nextEligible: expectedNextEligible) == snoozed)
     }
@@ -245,7 +245,7 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         
         let since = try Date.noon(year: 2026, month: 11, day: 1)
-        let snoozed = PromptStateLookup.some(.success(.pending(interval: .monthly, since: since))).snoozed(declaring: .monthly, at: now, in: .testing)
+        let snoozed = PersistedPromptState.some(.success(.pending(interval: .monthly, since: since))).snoozed(declaring: .monthly, at: now, in: .testing)
         
         #expect(nil == snoozed)
     }
@@ -255,7 +255,7 @@ struct PromptSchedulingTest {
     @Test func snoozingARetiredPromptChangesNothing() throws {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
         
-        let snoozed = PromptStateLookup.some(.success(.done)).snoozed(declaring: .monthly, at: now, in: .testing)
+        let snoozed = PersistedPromptState.some(.success(.done)).snoozed(declaring: .monthly, at: now, in: .testing)
         
         #expect(nil == snoozed)
     }
@@ -264,7 +264,7 @@ struct PromptSchedulingTest {
     /// A state which can't be read isn't overwritten by asking for later
     @Test func snoozingAnUnreadablePromptChangesNothing() throws {
         let now = try Date.noon(year: 2026, month: 11, day: 3)
-        let reading = PromptStateLookup.some(.failure(StubAction.StubError()))
+        let reading = PersistedPromptState.some(.failure(StubAction.StubError()))
         
         let snoozed = reading.snoozed(declaring: .monthly, at: now, in: .testing)
         
@@ -277,9 +277,9 @@ struct PromptSchedulingTest {
         let now = try Date.noon(year: 2126, month: 1, day: 1)
         let since = try Date.noon(year: 2026, month: 1, day: 1)
         
-        let result = PromptStateLookup.some(.success(.resolving(interval: .weekly, since: since))).check(declaring: .weekly, at: now, in: .testing)
+        let result = PersistedPromptState.some(.success(.resolving(interval: .weekly, since: since))).check(declaring: .weekly, at: now, in: .testing)
         
-        #expect(PromptDecision.finishResolving == result.decision)
+        #expect(PromptLoadAction.finishResolving == result.decision)
         #expect(nil == result.stateToRemember)
     }
 }
@@ -290,7 +290,7 @@ struct PromptSchedulingTest {
 struct PromptAttemptTest {
     
     /// A stored lookup for each kind of state, so each transition can be checked against all of them
-    private static func lookups(since: Date) -> [(name: String, lookup: PromptStateLookup)] {
+    private static func lookups(since: Date) -> [(name: String, lookup: PersistedPromptState)] {
         [
             (name: "nothing stored", lookup: nil),
             (name: "scheduled", lookup: .some(.success(.scheduled(interval: .monthly, nextEligible: since)))),
@@ -313,10 +313,10 @@ struct PromptAttemptTest {
             
             switch name {
             case "nothing stored":
-                #expect(PromptState.pending(interval: .weekly, since: now) == started, "\(name)")
+                #expect(PromptState.scheduled(interval: .weekly, nextEligible: now) == started, "\(name)")
                 
             case "scheduled":
-                #expect(PromptState.pending(interval: .monthly, since: now) == started, "\(name)")
+                #expect(PromptState.scheduled(interval: .monthly, nextEligible: now) == started, "\(name)")
                 
             default:
                 #expect(nil == started, "\(name)")

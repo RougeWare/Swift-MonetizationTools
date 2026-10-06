@@ -59,6 +59,10 @@ public struct MonetizationPrompt: View {
     @State
     private var isPresenting = false
     
+    /// Whether to disable the entire prompt
+    @State
+    private var disablePrompt = false
+    
     /// The status message shown in place of the prompt's content, or `nil` to show the content. It's cleared each time
     /// this view appears, so a status message only ever shows during the appearance where the attempt went pending.
     @State
@@ -69,7 +73,7 @@ public struct MonetizationPrompt: View {
     @State
     private var statusHeight: CGFloat? = nil
     
-    /// The environment of this view, which the flow passes to the prompt's action
+    /// The environment of this view, which the flow passes to the prompt's paymentHandler
     @Environment(\.self)
     private var environment
     
@@ -126,6 +130,7 @@ public struct MonetizationPrompt: View {
             store: PromptStore(scope: descriptor.scope),
             environment: environment,
             isShowing: effectiveIsShowing,
+            disablePrompt: $disablePrompt,
             isPresenting: $isPresenting,
             statusMessage: $statusMessage,
             limiter: .shared
@@ -210,8 +215,9 @@ public struct MonetizationPrompt: View {
     
     public var body: some View {
         presentedContent
-        .onAppear {
-            handleAppearance()
-        }
+            .disabled(disablePrompt)
+            .onAppear {
+                handleAppearance()
+            }
     }
 }
